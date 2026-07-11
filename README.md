@@ -60,8 +60,9 @@ Double-clicking the desktop shortcut runs `main.py` via `pythonw.exe` without op
 
 ## ⚙️ Customization & Settings
 
-Right-click anywhere on the OmniBar widget or click the **⚙️ Settings** icon to open the Settings panel where you can:
-- Change the **Theme** (e.g., *Radium Rainbow*, *Neon Radium*, *Cyberpunk*).
-- Switch **Dock Position** (*Top*, *Bottom*, *Left*, *Right*).
-- Adjust **Font & Bar Size** (*Small*, *Medium*, *Large*, *Extra Large*).
-- Configure **Opacity** and **Auto-Start at Boot**.
+Right-click anywhere on the OmniBar widget, use the Windows System Tray icon, or click the **⚙️ Settings** icon to open the Settings panel where you can:
+- **Visual Theme & Custom Color:** Choose curated palettes (*Radium Rainbow*, *Neon Radium*, *Sleek Dark*) or use the **Custom Background Color Chooser** (#HEX color dialog) with adjustable opacity %.
+- **RAG Threshold Controls:** Configure custom warning (amber) and critical (red) limits for CPU, RAM, and GPU percentage indicators.
+- **Unified Storage Drives:** View all internal and external partitions grouped together under one clean **STORAGE DRIVES (°C)** card. Clicking opens Windows Explorer ("This PC").
+- **Dock Position & System Tray Checks:** Dock to *Top*, *Bottom*, *Left*, or *Right* with active checkmarks (`✓`) displayed in the System Tray context menu.
+- **Edge Auto-Hide:** Accurate off-screen auto-hide geometry for horizontal and vertical dock layouts.
