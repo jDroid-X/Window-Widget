@@ -5,7 +5,7 @@
 
 $ErrorActionPreference = "Stop"
 $RepoUrl = "https://github.com/jDroid-X/Window-Widget.git"
-$WorkDir = $PSScriptRoot
+$WorkDir = Split-Path -Parent $PSScriptRoot
 
 Write-Host "===================================================" -ForegroundColor Cyan
 Write-Host "         SYNC OMNIBAR TO GITHUB REPOSITORY         " -ForegroundColor Cyan

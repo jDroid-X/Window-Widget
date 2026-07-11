@@ -1,4 +1,5 @@
 import os
+import copy
 import json
 import psutil
 import time
@@ -12,6 +13,8 @@ DEFAULT_SETTINGS = {
     "theme": "sleek_dark",      # "sleek_dark", "vibrant_blue", "forest_glass", "light_minimal", "radium_rainbow", "neon_radium"
     "custom_bg_enabled": False,
     "custom_bg_color": "#121212",
+    "custom_border_enabled": True,
+    "custom_border_color": "#00E5FF",
     "cpu_warn": 60,
     "cpu_crit": 85,
     "ram_warn": 60,
@@ -124,6 +127,17 @@ class SystemMetricsWorker(QThread):
             self.prev_net_sent = 0
             self.prev_net_recv = 0
             
+        try:
+            disk_io = psutil.disk_io_counters()
+            self.prev_disk_read = disk_io.read_bytes
+            self.prev_disk_write = disk_io.write_bytes
+        except Exception:
+            self.prev_disk_read = 0
+            self.prev_disk_write = 0
+
+        self.cached_ping = None
+        self.cached_top_cpu = []
+        self.cached_top_ram = []
         self.prev_time = time.time()
         self.cached_drives = []
         self.cached_battery = {}
@@ -179,6 +193,8 @@ class SystemMetricsWorker(QThread):
                 metrics["gpu_percent"] = 0
                 metrics["gpu_temp"] = None
                 metrics["gpu_name"] = "N/A"
+                metrics["gpu_vram_used"] = 0.0
+                metrics["gpu_vram_total"] = 0.0
                 if GPUtil:
                     try:
                         gpus = GPUtil.getGPUs()
@@ -186,6 +202,8 @@ class SystemMetricsWorker(QThread):
                             metrics["gpu_percent"] = int(gpus[0].load * 100)
                             metrics["gpu_temp"] = int(gpus[0].temperature)
                             metrics["gpu_name"] = gpus[0].name
+                            metrics["gpu_vram_used"] = round(gpus[0].memoryUsed / 1024, 1) # GB
+                            metrics["gpu_vram_total"] = round(gpus[0].memoryTotal / 1024, 1) # GB
                     except Exception:
                         pass
 
@@ -229,14 +247,40 @@ class SystemMetricsWorker(QThread):
                             bat_info = {
                                 "present": True,
                                 "percent": int(bat.percent),
-                                "power_plugged": bat.power_plugged
+                                "power_plugged": bat.power_plugged,
+                                "secsleft": bat.secsleft
                             }
                     except Exception:
                         pass
                     self.cached_battery = bat_info
 
+                    # Top Processes (CPU & RAM)
+                    cpu_procs = []
+                    ram_procs = []
+                    try:
+                        for p in psutil.process_iter(['name', 'cpu_percent', 'memory_info']):
+                            try:
+                                cpu_pct = p.info['cpu_percent']
+                                mem_used = p.info['memory_info'].rss
+                                name = p.info['name']
+                                if cpu_pct and cpu_pct > 0.5:
+                                    cpu_procs.append((name, cpu_pct))
+                                if mem_used and mem_used > 5 * 1024 * 1024:
+                                    ram_procs.append((name, mem_used))
+                            except (psutil.NoSuchProcess, psutil.AccessDenied, psutil.ZombieProcess):
+                                pass
+                        cpu_procs = sorted(cpu_procs, key=lambda x: x[1], reverse=True)[:3]
+                        ram_procs = sorted(ram_procs, key=lambda x: x[1], reverse=True)[:3]
+                        ram_formatted = [(name, f"{mem / (1024**2):.1f}MB") for name, mem in ram_procs]
+                        self.cached_top_cpu = cpu_procs
+                        self.cached_top_ram = ram_formatted
+                    except Exception:
+                        pass
+
                 metrics["drives"] = self.cached_drives
                 metrics["battery"] = self.cached_battery
+                metrics["top_cpu"] = self.cached_top_cpu
+                metrics["top_ram"] = self.cached_top_ram
 
                 # 5. Network Speed (Diff bytes)
                 try:
@@ -257,11 +301,39 @@ class SystemMetricsWorker(QThread):
                 metrics["net_upload"] = max(0.0, upload_speed)
                 metrics["net_download"] = max(0.0, download_speed)
 
+                # Disk I/O Speeds
+                try:
+                    disk_io = psutil.disk_io_counters()
+                    read_speed = (disk_io.read_bytes - self.prev_disk_read) / dt
+                    write_speed = (disk_io.write_bytes - self.prev_disk_write) / dt
+                    self.prev_disk_read = disk_io.read_bytes
+                    self.prev_disk_write = disk_io.write_bytes
+                except Exception:
+                    read_speed = 0
+                    write_speed = 0
+                metrics["disk_read"] = max(0.0, read_speed)
+                metrics["disk_write"] = max(0.0, write_speed)
+
+                # Ping Latency (every 10 ticks = ~10s)
+                if self.tick_count % 10 == 0 or self.cached_ping is None:
+                    import socket
+                    try:
+                        start_t = time.time()
+                        s = socket.create_connection(("1.1.1.1", 53), timeout=0.8)
+                        s.close()
+                        self.cached_ping = int((time.time() - start_t) * 1000)
+                    except Exception:
+                        self.cached_ping = -1
+                metrics["net_ping"] = self.cached_ping
+
                 self.metrics_updated.emit(metrics)
                 self.tick_count += 1
             except Exception as e:
                 print(f"Metrics worker iteration error: {e}")
             self.msleep(1000) # Poll fast loop every 1000ms
+
+    def trigger_drives_update(self):
+        self.cached_drives = []
 
     def stop(self):
         self.running = False
@@ -276,7 +348,7 @@ class SettingsManager:
         else:
             self.filename = filename
         self.mutex = QMutex()
-        self.settings = DEFAULT_SETTINGS.copy()
+        self.settings = copy.deepcopy(DEFAULT_SETTINGS)
         self.load_settings()
 
     def load_settings(self):
@@ -308,6 +380,17 @@ class SettingsManager:
     def set(self, key, value):
         locker = QMutexLocker(self.mutex)
         self.settings[key] = value
+        try:
+            with open(self.filename, 'w') as f:
+                json.dump(self.settings, f, indent=4)
+        except Exception as e:
+            print(f"Error saving settings: {e}")
+
+    def set_batch(self, updates):
+        """Apply multiple key-value pairs and write to disk only once."""
+        locker = QMutexLocker(self.mutex)
+        for key, value in updates.items():
+            self.settings[key] = value
         try:
             with open(self.filename, 'w') as f:
                 json.dump(self.settings, f, indent=4)

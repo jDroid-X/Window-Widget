@@ -12,25 +12,43 @@ def copy_files():
     try:
         os.makedirs(TARGET_DIR, exist_ok=True)
         
-        # Files to install
-        files_to_copy = [
-            "main.py",
-            "widget_model.py",
-            "widget_view.py",
-            "widget_settings_view.py",
-            "widget_controller.py",
-            "widget_settings.json",
-            "requirements.txt",
-            "installer_helper.py"
-        ]
+        # Resolve source root directory (parent of installer/ folder)
+        installer_dir = os.path.dirname(os.path.abspath(__file__))
+        source_root = os.path.dirname(installer_dir)
         
-        source_dir = os.path.dirname(os.path.abspath(__file__))
-        for file in files_to_copy:
-            src = os.path.join(source_dir, file)
-            dst = os.path.join(TARGET_DIR, file)
-            if os.path.exists(src) and os.path.abspath(src) != os.path.abspath(dst):
-                shutil.copy2(src, dst)
-                print(f"  Copied {file}")
+        # Subdirectories to copy
+        subdirs = ["models", "views", "controllers", "installer"]
+        for s in subdirs:
+            src_sub = os.path.join(source_root, s)
+            dst_sub = os.path.join(TARGET_DIR, s)
+            
+            temp_settings = None
+            if s == "models":
+                settings_dst = os.path.join(dst_sub, "widget_settings.json")
+                if os.path.exists(settings_dst):
+                    try:
+                        with open(settings_dst, 'r') as f:
+                            temp_settings = f.read()
+                    except Exception:
+                        pass
+
+            if os.path.exists(dst_sub):
+                shutil.rmtree(dst_sub, ignore_errors=True)
+                
+            shutil.copytree(src_sub, dst_sub)
+            
+            if s == "models" and temp_settings is not None:
+                try:
+                    with open(os.path.join(dst_sub, "widget_settings.json"), 'w') as f:
+                        f.write(temp_settings)
+                    print("  Preserved existing user configuration (widget_settings.json)")
+                except Exception as e:
+                    print(f"  Warning: Could not restore settings: {e}")
+            print(f"  Copied directory {s}/")
+
+        # Copy main.py
+        shutil.copy2(os.path.join(source_root, "main.py"), os.path.join(TARGET_DIR, "main.py"))
+        print("  Copied main.py")
         print("File copying completed successfully.")
     except Exception as e:
         print(f"Error copying files: {e}")
@@ -40,7 +58,7 @@ def install_dependencies():
     print("[2/4] Installing Python dependencies via pip...")
     try:
         # Run pip install referencing the requirements file inside the target installation directory
-        req_file = os.path.join(TARGET_DIR, "requirements.txt")
+        req_file = os.path.join(TARGET_DIR, "installer", "requirements.txt")
         subprocess.check_call([sys.executable, "-m", "pip", "install", "-r", req_file])
         print("Dependencies installed successfully.")
     except Exception as e:
@@ -63,31 +81,14 @@ def register_startup():
 def create_desktop_shortcut():
     print("[4/4] Creating Desktop shortcut...")
     try:
-        import winshell
-        from win32com.client import Dispatch
-        
-        desktop = winshell.desktop()
-        old_path = os.path.join(desktop, "OmniBar Hardware Widget.lnk")
-        if os.path.exists(old_path):
-            try:
-                os.remove(old_path)
-            except Exception:
-                pass
-        path = os.path.join(desktop, "jDroid-X OmniBar.lnk")
-        target = sys.executable.replace("python.exe", "pythonw.exe")
-        script_path = os.path.abspath(os.path.join(TARGET_DIR, "main.py"))
-        
-        shell = Dispatch('WScript.Shell')
-        shortcut = shell.CreateShortCut(path)
-        shortcut.Targetpath = target
-        shortcut.Arguments = f'"{script_path}"'
-        shortcut.WorkingDirectory = TARGET_DIR
-        shortcut.IconLocation = r"C:\Windows\System32\imageres.dll, 219"
-        shortcut.Description = "Launches jDroid-X OmniBar Hardware Widget"
-        shortcut.save()
-        print(f"Desktop shortcut created successfully: {path}")
+        from create_shortcut import create_desktop_shortcut as _create_shortcut
+        success, msg = _create_shortcut(TARGET_DIR)
+        if success:
+            print(f"  Desktop shortcut created successfully: {msg}")
+        else:
+            print(f"  [ERROR] Could not create shortcut: {msg}")
     except Exception as e:
-        print(f"Error creating shortcut: {e}")
+        print(f"  [ERROR] Could not create shortcut: {e}")
 
 if __name__ == "__main__":
     copy_files()

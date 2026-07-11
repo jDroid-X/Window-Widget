@@ -4,8 +4,8 @@ import winreg
 from PyQt5.QtCore import Qt
 from PyQt5.QtGui import QIcon, QPixmap, QPainter, QColor, QBrush, QPen
 from PyQt5.QtWidgets import QApplication, QSystemTrayIcon, QMenu, QAction
-from widget_model import SettingsManager, SystemMetricsWorker
-from widget_settings_view import SettingsWindow
+from models.widget_model import SettingsManager, SystemMetricsWorker
+from views.widget_settings_view import SettingsWindow
 
 def is_startup_enabled():
     try:
@@ -20,8 +20,14 @@ def set_startup_enabled(enable):
     try:
         key = winreg.OpenKey(winreg.HKEY_CURRENT_USER, r"Software\Microsoft\Windows\CurrentVersion\Run", 0, winreg.KEY_ALL_ACCESS)
         if enable:
-            exe_path = sys.executable.replace("python.exe", "pythonw.exe")
-            main_script = os.path.abspath(os.path.join(os.path.dirname(__file__), "main.py"))
+            # Robustly resolve pythonw.exe next to the current interpreter
+            exe_dir = os.path.dirname(sys.executable)
+            exe_path = os.path.join(exe_dir, "pythonw.exe")
+            if not os.path.isfile(exe_path):
+                exe_path = sys.executable.replace("python.exe", "pythonw.exe")
+            if not os.path.isfile(exe_path):
+                exe_path = sys.executable  # Last resort
+            main_script = os.path.abspath(os.path.join(os.path.dirname(__file__), "..", "main.py"))
             cmd = f'"{exe_path}" "{main_script}"'
             winreg.SetValueEx(key, "OmniBarWidget", 0, winreg.REG_SZ, cmd)
         else:
@@ -81,20 +87,26 @@ class WidgetController:
 
         # Dock Positions Submenu / Actions
         self.act_top = QAction("Dock to Top (Horizontal Row)", self.tray_menu)
+        self.act_top.setCheckable(True)
         self.act_top.triggered.connect(lambda: self.set_dock_position("top"))
         self.tray_menu.addAction(self.act_top)
 
         self.act_bottom = QAction("Dock to Bottom (Horizontal Row)", self.tray_menu)
+        self.act_bottom.setCheckable(True)
         self.act_bottom.triggered.connect(lambda: self.set_dock_position("bottom"))
         self.tray_menu.addAction(self.act_bottom)
 
         self.act_left = QAction("Dock to Left (Vertical Column)", self.tray_menu)
+        self.act_left.setCheckable(True)
         self.act_left.triggered.connect(lambda: self.set_dock_position("left"))
         self.tray_menu.addAction(self.act_left)
 
         self.act_right = QAction("Dock to Right (Vertical Column)", self.tray_menu)
+        self.act_right.setCheckable(True)
         self.act_right.triggered.connect(lambda: self.set_dock_position("right"))
         self.tray_menu.addAction(self.act_right)
+
+        self.update_tray_ticks()
 
         self.tray_menu.addSeparator()
 
@@ -121,12 +133,19 @@ class WidgetController:
 
         # Quit
         act_quit = QAction("✕ Quit OmniBar", self.tray_menu)
-        act_quit.triggered.connect(QApplication.instance().quit)
+        act_quit.triggered.connect(self.confirm_quit)
         self.tray_menu.addAction(act_quit)
 
         self.tray_icon.setContextMenu(self.tray_menu)
         self.tray_icon.activated.connect(self.on_tray_activated)
         self.tray_icon.show()
+
+    def update_tray_ticks(self):
+        pos = self.settings.get("position", "top")
+        self.act_top.setChecked(pos == "top")
+        self.act_bottom.setChecked(pos == "bottom")
+        self.act_left.setChecked(pos == "left")
+        self.act_right.setChecked(pos == "right")
 
     def on_tray_activated(self, reason):
         if reason == QSystemTrayIcon.DoubleClick:
@@ -146,13 +165,40 @@ class WidgetController:
     def set_widget_bar(self, widget_bar):
         self.widget_bar = widget_bar
 
+    def refresh_drives(self):
+        if self.metrics_worker:
+            self.metrics_worker.trigger_drives_update()
+
+    def refresh_tray_icon(self):
+        if hasattr(self, "tray_icon") and self.tray_icon:
+            self.tray_icon.hide()
+            self.tray_icon.show()
+
     def on_metrics_updated(self, metrics):
         if self.widget_bar:
             self.widget_bar.update_metrics(metrics)
 
     def show_settings(self):
+        # Prevent opening duplicate settings dialogs
+        if self.settings_window is not None and self.settings_window.isVisible():
+            self.settings_window.raise_()
+            self.settings_window.activateWindow()
+            return
         self.settings_window = SettingsWindow(self.settings, self)
         self.settings_window.show()
+
+    def confirm_quit(self):
+        """Show a confirmation dialog before quitting."""
+        from PyQt5.QtWidgets import QMessageBox
+        response = QMessageBox.question(
+            None,
+            "Quit OmniBar",
+            "Are you sure you want to close OmniBar?",
+            QMessageBox.Yes | QMessageBox.No,
+            QMessageBox.No,
+        )
+        if response == QMessageBox.Yes:
+            QApplication.instance().quit()
 
     def apply_configuration(self):
         if self.widget_bar:
@@ -162,6 +208,7 @@ class WidgetController:
         # Keep tray menu state synced
         if hasattr(self, "act_autohide"):
             self.act_autohide.setChecked(self.settings.get("auto_hide", False))
+        self.update_tray_ticks()
 
     def shutdown(self):
         if hasattr(self, "tray_icon") and self.tray_icon:

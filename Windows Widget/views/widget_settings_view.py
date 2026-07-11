@@ -127,9 +127,15 @@ class SettingsWindow(QDialog):
         theme_layout.addWidget(self.theme_combo)
         aes_layout.addLayout(theme_layout)
 
+        # Sync with Windows Theme Checkbox
+        self.sync_theme_chk = QCheckBox("Sync with Windows Theme")
+        self.sync_theme_chk.setChecked(self.settings.get("sync_windows_theme", False))
+        self.sync_theme_chk.setToolTip("Automatically switches between Dark and Light mode based on Windows settings")
+        aes_layout.addWidget(self.sync_theme_chk)
+
         # Custom Background Color Chooser
         color_layout = QHBoxLayout()
-        self.custom_bg_chk = QCheckBox("Custom Background Color:")
+        self.custom_bg_chk = QCheckBox("Custom Background:")
         self.custom_bg_chk.setChecked(self.settings.get("custom_bg_enabled", False))
         self.color_preview = QPushButton("Choose Color")
         self.color_preview.setFixedSize(120, 24)
@@ -139,6 +145,19 @@ class SettingsWindow(QDialog):
         color_layout.addWidget(self.custom_bg_chk)
         color_layout.addWidget(self.color_preview)
         aes_layout.addLayout(color_layout)
+
+        # Custom Border Color Chooser
+        border_color_layout = QHBoxLayout()
+        self.custom_border_chk = QCheckBox("Custom Border:")
+        self.custom_border_chk.setChecked(self.settings.get("custom_border_enabled", True))
+        self.border_preview = QPushButton("Choose Color")
+        self.border_preview.setFixedSize(120, 24)
+        self.custom_border_hex = self.settings.get("custom_border_color", "#00E5FF")
+        self.border_preview.setStyleSheet(f"background-color: {self.custom_border_hex}; border: 1px solid #777; border-radius: 3px; color: #FFF; font-weight: bold;")
+        self.border_preview.clicked.connect(self.choose_custom_border_color)
+        border_color_layout.addWidget(self.custom_border_chk)
+        border_color_layout.addWidget(self.border_preview)
+        aes_layout.addLayout(border_color_layout)
 
         main_layout.addWidget(aes_group)
 
@@ -210,35 +229,43 @@ class SettingsWindow(QDialog):
             self.custom_color_hex = color.name()
             self.color_preview.setStyleSheet(f"background-color: {self.custom_color_hex}; border: 1px solid #777; border-radius: 3px; color: #FFF; font-weight: bold;")
 
-    def save_settings(self):
-        self.settings.set("position", self.pos_combo.currentText().lower())
-        self.settings.set("auto_hide", self.hide_chk.isChecked())
-        self.settings.set("icon_size", self.size_combo.currentText().lower())
+    def choose_custom_border_color(self):
+        color = QColorDialog.getColor(QColor(self.custom_border_hex), self, "Choose Border Color")
+        if color.isValid():
+            self.custom_border_hex = color.name()
+            self.border_preview.setStyleSheet(f"background-color: {self.custom_border_hex}; border: 1px solid #777; border-radius: 3px; color: #FFF; font-weight: bold;")
 
+    def save_settings(self):
         items = {}
         for key, chk in self.item_chks.items():
             items[key] = chk.isChecked()
-        self.settings.set("items", items)
 
         drives = [d.strip().upper() for d in self.drive_input.text().split(",") if d.strip()]
-        self.settings.set("drive_letters", drives if drives else ["C:", "D:"])
 
-        self.settings.set("opacity", self.opacity_slider.value())
+        # Collect all changes into a single batch write
+        updates = {
+            "position": self.pos_combo.currentText().lower(),
+            "auto_hide": self.hide_chk.isChecked(),
+            "icon_size": self.size_combo.currentText().lower(),
+            "items": items,
+            "drive_letters": drives if drives else ["C:", "D:"],
+            "opacity": self.opacity_slider.value(),
+            "theme": self.theme_combo.currentText().lower().replace(" ", "_"),
+            "sync_windows_theme": self.sync_theme_chk.isChecked(),
+            "custom_bg_enabled": self.custom_bg_chk.isChecked(),
+            "custom_bg_color": self.custom_color_hex,
+            "custom_border_enabled": self.custom_border_chk.isChecked(),
+            "custom_border_color": self.custom_border_hex,
+            "cpu_warn": self.cpu_warn_spin.value(),
+            "cpu_crit": self.cpu_crit_spin.value(),
+            "ram_warn": self.ram_warn_spin.value(),
+            "ram_crit": self.ram_crit_spin.value(),
+            "gpu_warn": self.gpu_warn_spin.value(),
+            "gpu_crit": self.gpu_crit_spin.value(),
+        }
+        self.settings.set_batch(updates)
 
-        theme_key = self.theme_combo.currentText().lower().replace(" ", "_")
-        self.settings.set("theme", theme_key)
-
-        self.settings.set("custom_bg_enabled", self.custom_bg_chk.isChecked())
-        self.settings.set("custom_bg_color", self.custom_color_hex)
-        
-        self.settings.set("cpu_warn", self.cpu_warn_spin.value())
-        self.settings.set("cpu_crit", self.cpu_crit_spin.value())
-        self.settings.set("ram_warn", self.ram_warn_spin.value())
-        self.settings.set("ram_crit", self.ram_crit_spin.value())
-        self.settings.set("gpu_warn", self.gpu_warn_spin.value())
-        self.settings.set("gpu_crit", self.gpu_crit_spin.value())
-
-        from widget_controller import set_startup_enabled
+        from controllers.widget_controller import set_startup_enabled
         set_startup_enabled(self.startup_chk.isChecked())
 
         self.controller.apply_configuration()
@@ -246,31 +273,11 @@ class SettingsWindow(QDialog):
 
     def create_desktop_shortcut(self):
         try:
-            import winshell
-            from win32com.client import Dispatch
-            
-            desktop = winshell.desktop()
-            old_path = os.path.join(desktop, "OmniBar Hardware Widget.lnk")
-            if os.path.exists(old_path):
-                try:
-                    os.remove(old_path)
-                except Exception:
-                    pass
-            path = os.path.join(desktop, "jDroid-X OmniBar.lnk")
-            target = sys.executable.replace("python.exe", "pythonw.exe")
-            
-            current_dir = os.path.abspath(os.path.dirname(__file__))
-            script_path = os.path.join(current_dir, "main.py")
-            
-            shell = Dispatch('WScript.Shell')
-            shortcut = shell.CreateShortCut(path)
-            shortcut.Targetpath = target
-            shortcut.Arguments = f'"{script_path}"'
-            shortcut.WorkingDirectory = current_dir
-            shortcut.IconLocation = r"C:\Windows\System32\imageres.dll, 219"
-            shortcut.Description = "Launches jDroid-X OmniBar Hardware Widget"
-            shortcut.save()
-            
-            QMessageBox.information(self, "Shortcut Created", "Desktop shortcut 'jDroid-X OmniBar' created successfully!")
+            from installer.create_shortcut import create_desktop_shortcut as _create_shortcut
+            success, msg = _create_shortcut()
+            if success:
+                QMessageBox.information(self, "Shortcut Created", f"Desktop shortcut created successfully:\n{msg}")
+            else:
+                QMessageBox.warning(self, "Shortcut Failed", f"Could not create shortcut:\n{msg}")
         except Exception as e:
-            QMessageBox.warning(self, "Shortcut Failed", f"Could not create shortcut: {e}")
+            QMessageBox.warning(self, "Shortcut Failed", f"Could not create shortcut:\n{e}")

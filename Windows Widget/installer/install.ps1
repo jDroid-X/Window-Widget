@@ -65,7 +65,9 @@ try {
     # Locate extracted folder (usually Window-Widget-main)
     $ExtractedFolder = Get-ChildItem -Path $TempExtract | Where-Object { $_.PSIsContainer } | Select-Object -First 1
     $SourceFolder = $ExtractedFolder.FullName
-    if (Test-Path "$SourceFolder\Windows Widget\main.py") {
+    if (Test-Path "$SourceFolder\Windows Widget\Windows Widget\main.py") {
+        $SourceFolder = "$SourceFolder\Windows Widget\Windows Widget"
+    } elseif (Test-Path "$SourceFolder\Windows Widget\main.py") {
         $SourceFolder = "$SourceFolder\Windows Widget"
     }
     
@@ -80,10 +82,29 @@ try {
     Remove-Item -Path $TempZip -Force -ErrorAction SilentlyContinue
     Remove-Item -Path $TempExtract -Recurse -Force -ErrorAction SilentlyContinue
 } catch {
-    Write-Host "[WARNING] Could not download from GitHub directly (or installing from local directory). Using local files..." -ForegroundColor Yellow
+    Write-Host "[WARNING] GitHub download or extraction failed: $_" -ForegroundColor Yellow
     $ScriptDir = $PSScriptRoot
-    if ($ScriptDir -and (Test-Path "$ScriptDir\main.py")) {
-        Copy-Item -Path "$ScriptDir\*" -Destination $TargetDir -Recurse -Force
+    $LocalSource = $ScriptDir
+    if ($ScriptDir) {
+        if (Test-Path "$ScriptDir\..\main.py") {
+            $LocalSource = "$ScriptDir\.."
+        }
+    }
+    if (Test-Path "$LocalSource\main.py") {
+        Write-Host "      Copying local files from $LocalSource to $TargetDir..." -ForegroundColor Gray
+        Copy-Item -Path "$LocalSource\*" -Destination $TargetDir -Recurse -Force
+    } else {
+        Write-Host ""
+        Write-Host "===================================================" -ForegroundColor Red
+        Write-Host "  [FATAL ERROR] Installation Failed!               " -ForegroundColor Red
+        Write-Host "  Could not download OmniBar from GitHub, and no    " -ForegroundColor Red
+        Write-Host "  local files were found in: $ScriptDir             " -ForegroundColor Red
+        Write-Host "===================================================" -ForegroundColor Red
+        Write-Host "Please ensure you have an active internet connection," -ForegroundColor Red
+        Write-Host "or extract the release ZIP and run install.bat/ps1" -ForegroundColor Red
+        Write-Host "directly from the extracted folder." -ForegroundColor Red
+        Write-Host ""
+        exit 1
     }
 }
 
@@ -99,18 +120,18 @@ Write-Host "[4/5] Configuring startup and desktop shortcut..." -ForegroundColor 
 # 5. Launch OmniBar
 Write-Host "[5/5] Launching OmniBar Hardware Widget..." -ForegroundColor Green
 try {
-    $PythonwCmd = "pythonw"
+    $PythonwCmd = "pythonw.exe"
     if (Get-Command pythonw -ErrorAction SilentlyContinue) {
         $PythonwCmd = (Get-Command pythonw).Source
     } elseif (Get-Command python -ErrorAction SilentlyContinue) {
-        $PythonwCmd = (Get-Command python).Source -replace "python.exe", "pythonw.exe"
+        $PythonwCmd = (Get-Command python).Source.ToLower().Replace("python.exe", "pythonw.exe")
     }
     if (-not (Test-Path $PythonwCmd)) {
-        $PythonwCmd = "pythonw"
+        $PythonwCmd = "pythonw.exe"
     }
-    Start-Process -FilePath $PythonwCmd -ArgumentList "`"$TargetDir\main.py`"" -WindowStyle Hidden
+    Start-Process -FilePath $PythonwCmd -ArgumentList "`"$TargetDir\main.py`""
 } catch {
-    Start-Process -FilePath "pythonw.exe" -ArgumentList "`"$TargetDir\main.py`"" -WindowStyle Hidden -ErrorAction SilentlyContinue
+    Start-Process -FilePath "pythonw.exe" -ArgumentList "`"$TargetDir\main.py`"" -ErrorAction SilentlyContinue
 }
 
 Write-Host ""

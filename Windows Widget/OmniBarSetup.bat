@@ -1,17 +1,29 @@
 @echo off
+cd /d "%~dp0"
 title jDroid-X OmniBar Installer Bootstrapper
 color 0A
 echo ===================================================
 echo           jDroid-X OmniBar Setup Bootstrapper
 echo ===================================================
 echo.
-echo This bootstrapper will download and install OmniBar
-echo and any missing requirements (including Python).
-echo.
-echo Please wait, checking environment and downloading files...
-echo.
 
-:: Execute the web installer script from the GitHub repository
+if exist "install.bat" (
+    echo Local install.bat detected. Running local installer...
+    echo.
+    call "install.bat"
+    exit /b %errorlevel%
+)
+
+if exist "install.ps1" (
+    echo Local install.ps1 detected. Running PowerShell installer...
+    echo.
+    powershell -NoProfile -ExecutionPolicy Bypass -File "install.ps1"
+    pause
+    exit /b %errorlevel%
+)
+
+echo Downloading and running latest installer from GitHub...
+echo.
 powershell -NoProfile -ExecutionPolicy Bypass -Command "[Net.ServicePointManager]::SecurityProtocol = [Net.SecurityProtocolType]::Tls12; $code = Invoke-WebRequest -Uri 'https://raw.githubusercontent.com/jDroid-X/Window-Widget/main/install.ps1' -UseBasicParsing; Invoke-Expression $code"
 
 if %errorlevel% neq 0 (

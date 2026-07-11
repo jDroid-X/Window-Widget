@@ -1,76 +1,29 @@
 import os
 import sys
+import re
 import ctypes
 import subprocess
 from PyQt5.QtCore import Qt, QPoint, QTimer, QTime, QDate, QEasingCurve, QPropertyAnimation, QRect
-from PyQt5.QtGui import QFont, QColor, QCursor
+from PyQt5.QtGui import QFont, QColor, QCursor, QPainter, QBrush, QPen
 from PyQt5.QtWidgets import (
-    QWidget, QHBoxLayout, QVBoxLayout, QLabel, QFrame, QApplication, QPushButton, QProgressBar
+    QWidget, QHBoxLayout, QVBoxLayout, QLabel, QFrame, QApplication,
+    QPushButton, QProgressBar, QSizePolicy
 )
-from widget_model import THEMES
+from models.widget_model import THEMES
 
 GWL_EXSTYLE = -20
 WS_EX_TOOLWINDOW = 0x00000080
 WS_EX_APPWINDOW = 0x00040000
+TASKBAR_CREATED_MSG = ctypes.windll.user32.RegisterWindowMessageW("TaskbarCreated")
 
-class HardwareCard(QFrame):
-    def __init__(self, icon_str, title_str, click_action=None):
-        super().__init__()
-        self.setObjectName("MonitorCard")
-        self.setCursor(QCursor(Qt.PointingHandCursor if click_action else Qt.ArrowCursor))
-        self.click_action = click_action
-        
-        layout = QVBoxLayout(self)
-        layout.setContentsMargins(8, 5, 8, 5)
-        layout.setSpacing(3)
-
-        # Header: Icon + Title
-        header_layout = QHBoxLayout()
-        header_layout.setContentsMargins(0, 0, 0, 0)
-        header_layout.setSpacing(4)
-        
-        self.lbl = QLabel(f"{icon_str} {title_str}")
-        self.lbl.setObjectName("MonitorLabel")
-        header_layout.addWidget(self.lbl)
-        header_layout.addStretch()
-        layout.addLayout(header_layout)
-
-        # Main Value Display
-        self.val = QLabel("--")
-        self.val.setObjectName("MonitorVal")
-        layout.addWidget(self.val)
-
-        # Mini Progress Bar (3px height gauge)
-        self.progress = QProgressBar()
-        self.progress.setObjectName("MiniProgress")
-        self.progress.setTextVisible(False)
-        self.progress.setFixedHeight(3)
-        self.progress.setRange(0, 100)
-        self.progress.setValue(0)
-        layout.addWidget(self.progress)
-
-    def set_metrics(self, value_text, percentage=0):
-        self.val.setText(value_text)
-        pct = max(0, min(100, int(percentage)))
-        self.progress.setValue(pct)
-        
-        if pct < 60:
-            color = "#00E676" # Green
-        elif pct < 85:
-            color = "#FFD600" # Yellow
-        else:
-            color = "#FF1744" # Red
-        self.progress.setStyleSheet(f"QProgressBar::chunk {{ background-color: {color}; border-radius: 1px; }}")
-
-    def mousePressEvent(self, event):
-        if event.button() == Qt.LeftButton and self.click_action:
-            try:
-                self.click_action()
-            except Exception as e:
-                print(f"Action trigger error: {e}")
-            event.accept()
-        else:
-            super().mousePressEvent(event)
+from views.base_card import VectorIconWidget, HardwareCard
+from views.cpu_display import CpuCard
+from views.ram_display import RamCard
+from views.gpu_display import GpuCard
+from views.drives_display import DrivesCard
+from views.wifi_display import WifiCard
+from views.battery_display import BatteryCard
+from views.datetime_display import DateTimeCard
 
 
 class ActionBadgeButton(QPushButton):
@@ -101,6 +54,7 @@ class WidgetBar(QWidget):
         
         self.drag_position = QPoint()
         self.hovered = False
+        self.update_tick = 0
         
         self.slide_anim = QPropertyAnimation(self, b"geometry")
         self.slide_anim.setDuration(240)
@@ -119,13 +73,69 @@ class WidgetBar(QWidget):
     def apply_native_windows_styles(self):
         try:
             hwnd = int(self.winId())
+            if not hwnd:
+                return
             user32 = ctypes.windll.user32
-            style = user32.GetWindowLongW(hwnd, GWL_EXSTYLE)
-            style = style & ~WS_EX_APPWINDOW
-            style = style | WS_EX_TOOLWINDOW
-            user32.SetWindowLongW(hwnd, GWL_EXSTYLE, style)
+            
+            # Use GetWindowLongPtrW / SetWindowLongPtrW for 64-bit compatibility
+            get_window_long = getattr(user32, "GetWindowLongPtrW", None)
+            if get_window_long is None:
+                get_window_long = user32.GetWindowLongW
+            set_window_long = getattr(user32, "SetWindowLongPtrW", None)
+            if set_window_long is None:
+                set_window_long = user32.SetWindowLongW
+                
+            get_window_long.argtypes = [ctypes.c_void_p, ctypes.c_int]
+            get_window_long.restype = ctypes.c_void_p
+            set_window_long.argtypes = [ctypes.c_void_p, ctypes.c_int, ctypes.c_void_p]
+            set_window_long.restype = ctypes.c_void_p
+
+            style = get_window_long(hwnd, GWL_EXSTYLE)
+            if style:
+                new_style = style & ~WS_EX_APPWINDOW
+                new_style = new_style | WS_EX_TOOLWINDOW
+                set_window_long(hwnd, GWL_EXSTYLE, new_style)
         except Exception as e:
             print(f"Failed native styling: {e}")
+
+    def paintEvent(self, event):
+        painter = QPainter(self)
+        painter.setRenderHint(QPainter.Antialiasing)
+        
+        # Retrieve current background color and opacity
+        theme_name = self.settings.get("theme", "sleek_dark")
+        opacity_val = float(self.settings.get("opacity", 25)) / 100.0
+        theme_cfg = THEMES.get(theme_name, THEMES["sleek_dark"])
+        
+        if self.settings.get("custom_bg_enabled", False):
+            # Parse hex custom bg color (e.g. #121212)
+            hex_color = self.settings.get("custom_bg_color", "#121212")
+            color = QColor(hex_color)
+            color.setAlpha(int(opacity_val * 255))
+        else:
+            bg_str = theme_cfg["bg_color"].format(opacity=opacity_val)
+            rgba = [float(x) for x in re.findall(r"[-+]?\d*\.\d+|\d+", bg_str)]
+            if len(rgba) == 4:
+                color = QColor(int(rgba[0]), int(rgba[1]), int(rgba[2]), int(rgba[3] * 255))
+            else:
+                color = QColor(18, 18, 18, int(opacity_val * 255))
+                
+        if self.settings.get("custom_border_enabled", True) and self.settings.get("custom_bg_enabled", False):
+            hex_border = self.settings.get("custom_border_color", "#00E5FF")
+            border_color = QColor(hex_border)
+            border_color.setAlpha(220)
+        else:
+            border_col_str = theme_cfg["border_color"]
+            rgba_border = [float(x) for x in re.findall(r"[-+]?\d*\.\d+|\d+", border_col_str)]
+            if len(rgba_border) == 4:
+                border_color = QColor(int(rgba_border[0]), int(rgba_border[1]), int(rgba_border[2]), int(rgba_border[3] * 255))
+            else:
+                border_color = QColor(255, 255, 255, 30)
+            
+        # Draw background and border
+        painter.setBrush(QBrush(color))
+        painter.setPen(QPen(border_color, 1))
+        painter.drawRoundedRect(self.rect().adjusted(1, 1, -1, -1), 10, 10)
 
     def cycle_resize_scale(self):
         current_sz = self.settings.get("icon_size", "medium")
@@ -140,13 +150,13 @@ class WidgetBar(QWidget):
 
     def setup_ui(self):
         if self.layout() is not None:
-            import sip
             old_layout = self.layout()
             while old_layout.count():
                 child = old_layout.takeAt(0)
                 if child.widget():
                     child.widget().deleteLater()
-            sip.delete(old_layout)
+            # Cleanly detach the old layout from self by setting it on a temporary dummy widget
+            QWidget().setLayout(old_layout)
 
         orientation = self.settings.get("position", "top")
         
@@ -165,66 +175,55 @@ class WidgetBar(QWidget):
         items_cfg = self.settings.get("items", {})
 
         def launch_taskmgr():
-            subprocess.Popen(["taskmgr.exe"], shell=True)
+            subprocess.Popen(["taskmgr.exe"])
 
         def launch_net():
-            subprocess.Popen(["control.exe", "ncpa.cpl"], shell=True)
+            subprocess.Popen(["control.exe", "ncpa.cpl"])
+
+        card_stretch = 1 if orientation in ["top", "bottom"] else 0
 
         # 1. CPU Card (with explicit Degree Celsius)
         if items_cfg.get("cpu", True):
-            card = HardwareCard("💻", "CPU (°C)", click_action=launch_taskmgr)
-            card.setObjectName("cpu_card")
+            card = CpuCard(self.settings, click_action=None)
             self.containers["cpu"] = card
-            self.main_layout.addWidget(card)
+            self.main_layout.addWidget(card, card_stretch)
 
         # 2. RAM Card
         if items_cfg.get("ram", True):
-            card = HardwareCard("📊", "RAM", click_action=launch_taskmgr)
-            card.setObjectName("ram_card")
+            card = RamCard(self.settings, click_action=None)
             self.containers["ram"] = card
-            self.main_layout.addWidget(card)
+            self.main_layout.addWidget(card, card_stretch)
 
         # 3. GPU Card (with explicit Degree Celsius)
         if items_cfg.get("gpu", True):
-            card = HardwareCard("🎮", "GPU (°C)", click_action=launch_taskmgr)
-            card.setObjectName("gpu_card")
+            card = GpuCard(self.settings, click_action=None)
             self.containers["gpu"] = card
-            self.main_layout.addWidget(card)
+            self.main_layout.addWidget(card, card_stretch)
 
-        # 4. Storage & External Drives (Auto-discovered)
+        # 4. Storage & External Drives (Grouped together)
         if items_cfg.get("drives", True):
-            self.drive_containers = []
-            selected_drives = self.settings.get("drive_letters", ["C:", "D:"])
-            for drv in selected_drives:
-                card = HardwareCard("💾", f"DRV {drv}", click_action=lambda d=drv: os.startfile(f"{d}\\"))
-                card.setObjectName("drive_card")
-                self.drive_containers.append(card)
-                self.main_layout.addWidget(card)
+            card = DrivesCard(self.settings, click_action=lambda: subprocess.Popen(["explorer.exe", "::={20D04FE0-3AEA-1069-A2D8-08002B30309D}"]))
+            self.containers["drives"] = card
+            self.main_layout.addWidget(card, card_stretch)
+            self.drive_containers = [card]
 
         # 5. Network Speeds
         if items_cfg.get("wifi", True):
-            card = HardwareCard("📶", "WIFI / NET", click_action=launch_net)
-            card.setObjectName("wifi_card")
+            card = WifiCard(self.settings, click_action=launch_net)
             self.containers["wifi"] = card
-            self.main_layout.addWidget(card)
+            self.main_layout.addWidget(card, card_stretch)
 
         # 6. Battery / Power
         if items_cfg.get("battery", True):
-            card = HardwareCard("🔋", "PWR")
-            card.setObjectName("battery_card")
+            card = BatteryCard(self.settings)
             self.containers["battery"] = card
-            self.main_layout.addWidget(card)
+            self.main_layout.addWidget(card, card_stretch)
 
         # 7. Live Clock
         if items_cfg.get("datetime", True):
-            card = HardwareCard("🕒", "TIME")
-            card.setObjectName("datetime_card")
+            card = DateTimeCard(self.settings)
             self.containers["datetime"] = card
-            self.main_layout.addWidget(card)
-
-        # Add flexible spacer so controls stay neatly aligned on Top-Right
-        if orientation in ["top", "bottom"]:
-            self.main_layout.addStretch()
+            self.main_layout.addWidget(card, card_stretch)
 
         # 8. Prominent Control Panel on Right side / Top-Right
         self.control_panel = QFrame()
@@ -254,9 +253,8 @@ class WidgetBar(QWidget):
         self.settings_btn = ActionBadgeButton("⚙", settings_text, "Open OmniBar Configuration Screen", self.controller.show_settings)
         ctrl_layout.addWidget(self.settings_btn)
 
-        # Top Right X Icon to Close Widget
-        close_text = "" if orientation in ["left", "right"] else "CLOSE"
-        self.exit_btn = ActionBadgeButton("✕", close_text, "Close OmniBar Widget", QApplication.instance().quit, is_danger=True)
+        # Top Right X Icon to Close Widget (Icon only)
+        self.exit_btn = ActionBadgeButton("✕", "", "Close OmniBar Widget", QApplication.instance().quit, is_danger=True)
         ctrl_layout.addWidget(self.exit_btn)
 
         self.main_layout.addWidget(self.control_panel)
@@ -289,9 +287,8 @@ class WidgetBar(QWidget):
 
         style = f"""
             WidgetBar {{
-                background-color: {bg_col};
-                border: 1px solid {border_col};
-                border-radius: 10px;
+                background-color: transparent;
+                border: none;
             }}
             #ControlPanelFrame {{
                 background-color: rgba(255, 255, 255, 0.06);
@@ -369,30 +366,37 @@ class WidgetBar(QWidget):
             style += """
                 #cpu_card { border: 1.5px solid rgba(186, 85, 211, 0.4); }
                 #cpu_card:hover { border-color: rgba(186, 85, 211, 0.95); background-color: rgba(186, 85, 211, 0.08); }
+                #cpu_card #MonitorLabel { color: #E055FF; }
                 #cpu_card #MonitorVal { color: #D300FF; }
 
                 #ram_card { border: 1.5px solid rgba(110, 13, 255, 0.4); }
                 #ram_card:hover { border-color: rgba(110, 13, 255, 0.95); background-color: rgba(110, 13, 255, 0.08); }
+                #ram_card #MonitorLabel { color: #8F4CFF; }
                 #ram_card #MonitorVal { color: #6E0DFF; }
 
                 #gpu_card { border: 1.5px solid rgba(30, 144, 255, 0.4); }
                 #gpu_card:hover { border-color: rgba(30, 144, 255, 0.95); background-color: rgba(30, 144, 255, 0.08); }
+                #gpu_card #MonitorLabel { color: #33B5FF; }
                 #gpu_card #MonitorVal { color: #00A2FF; }
 
                 #drive_card { border: 1.5px solid rgba(0, 250, 154, 0.4); }
                 #drive_card:hover { border-color: rgba(0, 250, 154, 0.95); background-color: rgba(0, 250, 154, 0.08); }
+                #drive_card #MonitorLabel { color: #33FF88; }
                 #drive_card #MonitorVal { color: #00FF66; }
 
                 #wifi_card { border: 1.5px solid rgba(255, 215, 0, 0.4); }
                 #wifi_card:hover { border-color: rgba(255, 215, 0, 0.95); background-color: rgba(255, 215, 0, 0.08); }
+                #wifi_card #MonitorLabel { color: #FFDF33; }
                 #wifi_card #MonitorVal { color: #FFD700; }
 
                 #battery_card { border: 1.5px solid rgba(255, 115, 0, 0.4); }
                 #battery_card:hover { border-color: rgba(255, 115, 0, 0.95); background-color: rgba(255, 115, 0, 0.08); }
+                #battery_card #MonitorLabel { color: #FF9433; }
                 #battery_card #MonitorVal { color: #FF7300; }
 
                 #datetime_card { border: 1.5px solid rgba(255, 23, 68, 0.4); }
                 #datetime_card:hover { border-color: rgba(255, 23, 68, 0.95); background-color: rgba(255, 23, 68, 0.08); }
+                #datetime_card #MonitorLabel { color: #FF4D6D; }
                 #datetime_card #MonitorVal { color: #FF1744; }
             """
         elif theme_name == "neon_radium":
@@ -407,6 +411,9 @@ class WidgetBar(QWidget):
                     border-color: #39FF14;
                     background-color: rgba(57, 255, 20, 0.12);
                 }
+                #MonitorLabel {
+                    color: rgba(57, 255, 20, 0.8);
+                }
                 #MonitorVal {
                     color: #39FF14;
                 }
@@ -414,122 +421,84 @@ class WidgetBar(QWidget):
 
         self.setStyleSheet(style)
 
+        # Sync vector icon colors with active theme colors
+        for name, card in self.containers.items():
+            if theme_name == "radium_rainbow":
+                colors = {
+                    "cpu": "#D300FF",
+                    "ram": "#6E0DFF",
+                    "gpu": "#00A2FF",
+                    "wifi": "#FFD700",
+                    "battery": "#FF7300",
+                    "datetime": "#FF1744"
+                }
+                card.icon_widget.set_color(colors.get(name, accent_col))
+            else:
+                card.icon_widget.set_color(accent_col)
+                
+        if hasattr(self, "drive_containers") and self.drive_containers:
+            for card in self.drive_containers:
+                if theme_name == "radium_rainbow":
+                    card.icon_widget.set_color("#00FF66")
+                else:
+                    card.icon_widget.set_color(accent_col)
+
     def update_metrics(self, metrics):
         orientation = self.settings.get("position", "top")
         is_vertical = orientation in ["left", "right"]
 
-        # 1. CPU (Explicit Degree Celsius)
+        # Increment update tick
+        self.update_tick += 1
+        
+        # Theme synchronization with Windows preferences
+        if self.settings.get("sync_windows_theme", False) and (self.update_tick % 5 == 0):
+            try:
+                import winreg
+                key = winreg.OpenKey(winreg.HKEY_CURRENT_USER, r"Software\Microsoft\Windows\CurrentVersion\Themes\Personalize")
+                value, _ = winreg.QueryValueEx(key, "AppsUseLightTheme")
+                winreg.CloseKey(key)
+                sys_theme = "light_minimal" if value == 1 else "sleek_dark"
+                if self.settings.get("theme") != sys_theme:
+                    self.settings.set("theme", sys_theme)
+                    self.apply_theme()
+            except Exception:
+                pass
+
+        theme_name = self.settings.get("theme", "sleek_dark")
+        theme_cfg = THEMES.get(theme_name, THEMES["sleek_dark"])
+        prog_cols = (
+            theme_cfg.get("progress_good", "#00E676"),
+            theme_cfg.get("progress_warn", "#FFD600"),
+            theme_cfg.get("progress_high", "#FF1744")
+        )
+        
+        # 1. CPU
         if "cpu" in self.containers:
-            percent = metrics.get("cpu_percent", 0)
-            temp = metrics.get("cpu_temp")
-            freq = metrics.get("cpu_freq")
-            phys = metrics.get("cpu_cores_phys", 0)
-            logical = metrics.get("cpu_cores_logical", 0)
-            
-            # Explicit Degree Celsius formatting
-            if is_vertical:
-                temp_str = f" | {temp}°C" if temp is not None else " | 43°C"
-                self.containers["cpu"].set_metrics(f"{percent}%{temp_str}", percent)
-            else:
-                temp_str = f" | {temp}°C Celsius" if temp is not None else " | 43°C Celsius"
-                freq_str = f" | {freq}GHz" if freq else ""
-                cores_str = f" ({phys}C/{logical}T)" if phys else ""
-                self.containers["cpu"].set_metrics(f"{percent}%{temp_str}{freq_str}{cores_str}", percent)
+            self.containers["cpu"].update_display(metrics, is_vertical, prog_cols)
 
         # 2. RAM
         if "ram" in self.containers:
-            percent = metrics.get("ram_percent", 0)
-            used = metrics.get("ram_used", 0.0)
-            total = metrics.get("ram_total", 0.0)
-            if is_vertical:
-                self.containers["ram"].set_metrics(f"{percent}% ({used}G)", percent)
-            else:
-                self.containers["ram"].set_metrics(f"{percent}% ({used}/{total}GB)", percent)
+            self.containers["ram"].update_display(metrics, is_vertical, prog_cols)
 
-        # 3. GPU (Explicit Degree Celsius)
+        # 3. GPU
         if "gpu" in self.containers:
-            percent = metrics.get("gpu_percent", 0)
-            temp = metrics.get("gpu_temp")
-            name = metrics.get("gpu_name", "N/A")
-            if is_vertical:
-                temp_str = f" | {temp}°C" if temp is not None else " | 40°C"
-                self.containers["gpu"].set_metrics(f"{percent}%{temp_str}", percent)
-            else:
-                temp_str = f" | {temp}°C Celsius" if temp is not None else " | 40°C Celsius"
-                name_str = f" [{name}]" if name != "N/A" else ""
-                self.containers["gpu"].set_metrics(f"{percent}%{temp_str}{name_str}", percent)
+            self.containers["gpu"].update_display(metrics, is_vertical, prog_cols)
 
-        # 4. Storage Drives (All Internal & External partitions dynamically discovered)
-        if hasattr(self, "drive_containers"):
-            drive_metrics = metrics.get("drives", [])
-            # If new drives were plugged in or detected, update cards
-            while len(self.drive_containers) < len(drive_metrics):
-                drv_idx = len(self.drive_containers)
-                drv_name = drive_metrics[drv_idx]["name"]
-                card = HardwareCard("💾", f"DRV {drv_name}", click_action=lambda d=drv_name: os.startfile(f"{d}\\"))
-                card.setObjectName("drive_card")
-                self.drive_containers.append(card)
-                # Insert before control panel
-                self.main_layout.insertWidget(self.main_layout.count() - 2, card)
-
-            for idx, item in enumerate(self.drive_containers):
-                if idx < len(drive_metrics):
-                    drv_name = drive_metrics[idx]["name"]
-                    drv_pct = drive_metrics[idx]["percent"]
-                    free = drive_metrics[idx].get("free", 0.0)
-                    total = drive_metrics[idx].get("total", 0.0)
-                    item.lbl.setText(f"💾 DRV {drv_name}")
-                    if is_vertical:
-                        item.set_metrics(f"{drv_pct}% ({free}G Free)", drv_pct)
-                    else:
-                        item.set_metrics(f"{drv_pct}% ({free}/{total}GB Free)", drv_pct)
+        # 4. Storage Drives
+        if "drives" in self.containers:
+            self.containers["drives"].update_display(metrics, is_vertical, prog_cols)
 
         # 5. Network Speeds
         if "wifi" in self.containers:
-            up_speed = metrics.get("net_upload", 0)
-            down_speed = metrics.get("net_download", 0)
-            
-            def format_speed_short(bytes_per_sec):
-                if bytes_per_sec >= 1024 * 1024:
-                    return f"{bytes_per_sec / (1024*1024):.0f}M"
-                else:
-                    return f"{bytes_per_sec / 1024:.0f}K"
-            
-            def format_speed(bytes_per_sec):
-                if bytes_per_sec >= 1024 * 1024:
-                    return f"{bytes_per_sec / (1024*1024):.1f} MB/s"
-                else:
-                    return f"{bytes_per_sec / 1024:.1f} KB/s"
-            
-            if is_vertical:
-                self.containers["wifi"].set_metrics(f"▲{format_speed_short(up_speed)} | ▼{format_speed_short(down_speed)}", min(100, int((down_speed + up_speed) / (1024 * 50))))
-            else:
-                self.containers["wifi"].set_metrics(f"▲ {format_speed(up_speed)} | ▼ {format_speed(down_speed)}", min(100, int((down_speed + up_speed) / (1024 * 50))))
+            self.containers["wifi"].update_display(metrics, is_vertical, prog_cols)
 
         # 6. Battery
         if "battery" in self.containers:
-            bat = metrics.get("battery", {})
-            if bat.get("present", False):
-                pct = bat.get("percent", 100)
-                if is_vertical:
-                    plug = "🔌" if bat.get("power_plugged") else "🔋"
-                    self.containers["battery"].set_metrics(f"{pct}% {plug}", pct)
-                else:
-                    plug = "[AC Charging]" if bat.get("power_plugged") else "[On Battery]"
-                    self.containers["battery"].set_metrics(f"{pct}% {plug}", pct)
-            else:
-                self.containers["battery"].set_metrics("AC Desktop Power" if not is_vertical else "AC Power", 0)
+            self.containers["battery"].update_display(metrics, is_vertical, prog_cols)
 
         # 7. Live Clock
         if "datetime" in self.containers:
-            if is_vertical:
-                current_time = QTime.currentTime().toString("hh:mm")
-                current_date = QDate.currentDate().toString("ddd d")
-                self.containers["datetime"].set_metrics(f"{current_time} | {current_date}", 0)
-            else:
-                current_time = QTime.currentTime().toString("hh:mm:ss")
-                current_date = QDate.currentDate().toString("ddd, MMM d")
-                self.containers["datetime"].set_metrics(f"{current_time} | {current_date}", 0)
+            self.containers["datetime"].update_display(metrics, is_vertical, prog_cols)
 
         # Update Opacity badge text dynamically
         if hasattr(self, "opacity_badge"):
@@ -581,22 +550,25 @@ class WidgetBar(QWidget):
             y = (screen.height() - h) // 2
 
         self.normal_geometry = QRect(x, y, w, h)
+        self.setFixedSize(w, h)
         self.calculate_hidden_geometry(screen, x, y, w, h, pos)
 
         if not self.settings.get("auto_hide", False) or self.hovered:
-            self.setGeometry(self.normal_geometry)
+            self.move(self.normal_geometry.topLeft())
         else:
-            self.setGeometry(self.hidden_geometry)
+            self.move(self.hidden_geometry.topLeft())
 
     def calculate_hidden_geometry(self, screen, x, y, w, h, pos):
+        actual_w = max(w, self.width())
+        actual_h = max(h, self.height())
         if pos == "top":
-            self.hidden_geometry = QRect(x, -h + 3, w, h)
+            self.hidden_geometry = QRect(x, -actual_h + 3, actual_w, actual_h)
         elif pos == "bottom":
-            self.hidden_geometry = QRect(x, screen.height() - 3, w, h)
+            self.hidden_geometry = QRect(x, screen.height() - 3, actual_w, actual_h)
         elif pos == "left":
-            self.hidden_geometry = QRect(-w + 3, y, w, h)
+            self.hidden_geometry = QRect(-actual_w + 3, y, actual_w, actual_h)
         else: # right
-            self.hidden_geometry = QRect(screen.width() - 3, y, w, h)
+            self.hidden_geometry = QRect(screen.width() - 3, y, actual_w, actual_h)
 
     def enterEvent(self, event):
         self.hovered = True
@@ -630,6 +602,8 @@ class WidgetBar(QWidget):
                 self.animate_to(self.hidden_geometry)
 
     def animate_to(self, target_rect):
+        if target_rect is None or self.geometry() == target_rect:
+            return
         if self.slide_anim.state() == QPropertyAnimation.Running:
             self.slide_anim.stop()
         self.slide_anim.setStartValue(self.geometry())
@@ -649,3 +623,26 @@ class WidgetBar(QWidget):
             if not self.settings.get("auto_hide", False):
                 self.move(event.globalPos() - self.drag_position)
                 event.accept()
+
+    def nativeEvent(self, event_type, message):
+        if event_type == b"windows_generic_MSG":
+            try:
+                import ctypes
+                from ctypes import wintypes
+                msg_ptr = int(message)
+                if msg_ptr:
+                    msg = ctypes.cast(msg_ptr, ctypes.POINTER(wintypes.MSG)).contents
+                    if msg.message == 0x0219:  # WM_DEVICECHANGE
+                        if hasattr(self, "controller") and self.controller:
+                            self.controller.refresh_drives()
+                    elif msg.message == TASKBAR_CREATED_MSG:
+                        if hasattr(self, "controller") and self.controller:
+                            self.controller.refresh_drives()
+                            if hasattr(self.controller, "refresh_tray_icon"):
+                                self.controller.refresh_tray_icon()
+                        self.reposition_and_resize()
+                        self.show()
+                        self.raise_()
+            except Exception as e:
+                print(f"Error in nativeEvent: {e}")
+        return super().nativeEvent(event_type, message)
