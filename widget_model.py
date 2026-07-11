@@ -200,8 +200,10 @@ class SystemMetricsWorker(QThread):
                 for drv in discovered_drives:
                     try:
                         usage = psutil.disk_usage(drv)
-                        # Dynamic/realistic drive temperature calculation based on CPU offset and load
-                        cpu_offset = (metrics.get("cpu_temp", 42) - 40) * 0.2
+                        cpu_t = metrics.get("cpu_temp")
+                        if cpu_t is None:
+                            cpu_t = 42
+                        cpu_offset = (cpu_t - 40) * 0.2
                         simulated_temp = int(32 + max(0.0, cpu_offset) + (usage.percent * 0.08))
                         drives_list.append({
                             "name": drv,

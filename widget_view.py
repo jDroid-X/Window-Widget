@@ -139,7 +139,10 @@ class HardwareCard(QFrame):
 
     def set_metrics(self, value_text, percentage=0, progress_colors=None, thresholds=None):
         self.val.setText(value_text)
-        pct = max(0, min(100, int(percentage)))
+        try:
+            pct = max(0, min(100, int(percentage or 0)))
+        except (ValueError, TypeError):
+            pct = 0
         self.progress.setValue(pct)
         
         if progress_colors:
