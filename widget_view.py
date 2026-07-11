@@ -101,6 +101,7 @@ class HardwareCard(QFrame):
     def __init__(self, icon_name, title_str, click_action=None):
         super().__init__()
         self.setObjectName("MonitorCard")
+        self.setSizePolicy(QSizePolicy.Expanding, QSizePolicy.Preferred)
         self.setCursor(QCursor(Qt.PointingHandCursor if click_action else Qt.ArrowCursor))
         self.click_action = click_action
         
@@ -304,26 +305,28 @@ class WidgetBar(QWidget):
         def launch_net():
             subprocess.Popen(["control.exe", "ncpa.cpl"], shell=True)
 
+        card_stretch = 1 if orientation in ["top", "bottom"] else 0
+
         # 1. CPU Card (with explicit Degree Celsius)
         if items_cfg.get("cpu", True):
             card = HardwareCard("cpu", "CPU (°C)", click_action=launch_taskmgr)
             card.setObjectName("cpu_card")
             self.containers["cpu"] = card
-            self.main_layout.addWidget(card)
+            self.main_layout.addWidget(card, card_stretch)
 
         # 2. RAM Card
         if items_cfg.get("ram", True):
             card = HardwareCard("ram", "RAM", click_action=launch_taskmgr)
             card.setObjectName("ram_card")
             self.containers["ram"] = card
-            self.main_layout.addWidget(card)
+            self.main_layout.addWidget(card, card_stretch)
 
         # 3. GPU Card (with explicit Degree Celsius)
         if items_cfg.get("gpu", True):
             card = HardwareCard("gpu", "GPU (°C)", click_action=launch_taskmgr)
             card.setObjectName("gpu_card")
             self.containers["gpu"] = card
-            self.main_layout.addWidget(card)
+            self.main_layout.addWidget(card, card_stretch)
 
         # 4. Storage & External Drives (Auto-discovered)
         if items_cfg.get("drives", True):
@@ -333,32 +336,28 @@ class WidgetBar(QWidget):
                 card = HardwareCard("drive", f"DRV {drv}", click_action=lambda d=drv: os.startfile(f"{d}\\"))
                 card.setObjectName("drive_card")
                 self.drive_containers.append(card)
-                self.main_layout.addWidget(card)
+                self.main_layout.addWidget(card, card_stretch)
 
         # 5. Network Speeds
         if items_cfg.get("wifi", True):
             card = HardwareCard("wifi", "WIFI / NET", click_action=launch_net)
             card.setObjectName("wifi_card")
             self.containers["wifi"] = card
-            self.main_layout.addWidget(card)
+            self.main_layout.addWidget(card, card_stretch)
 
         # 6. Battery / Power
         if items_cfg.get("battery", True):
             card = HardwareCard("battery", "PWR")
             card.setObjectName("battery_card")
             self.containers["battery"] = card
-            self.main_layout.addWidget(card)
+            self.main_layout.addWidget(card, card_stretch)
 
         # 7. Live Clock
         if items_cfg.get("datetime", True):
             card = HardwareCard("clock", "TIME")
             card.setObjectName("datetime_card")
             self.containers["datetime"] = card
-            self.main_layout.addWidget(card)
-
-        # Add flexible spacer so controls stay neatly aligned on Top-Right
-        if orientation in ["top", "bottom"]:
-            self.main_layout.addStretch()
+            self.main_layout.addWidget(card, card_stretch)
 
         # 8. Prominent Control Panel on Right side / Top-Right
         self.control_panel = QFrame()
