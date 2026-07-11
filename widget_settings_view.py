@@ -5,7 +5,7 @@ from PyQt5.QtGui import QColor
 from PyQt5.QtWidgets import (
     QDialog, QVBoxLayout, QHBoxLayout, QGroupBox, QCheckBox, 
     QSlider, QLabel, QPushButton, QComboBox, QLineEdit, QMessageBox,
-    QGridLayout, QSpinBox
+    QGridLayout, QSpinBox, QColorDialog
 )
 
 class SettingsWindow(QDialog):
@@ -15,7 +15,8 @@ class SettingsWindow(QDialog):
         self.controller = controller
         
         self.setWindowTitle("OmniBar Configuration")
-        self.setFixedSize(430, 570)
+        self.setMinimumSize(430, 580)
+        self.resize(450, 600)
         self.setWindowFlags(Qt.WindowCloseButtonHint | Qt.WindowMaximizeButtonHint)
         
         self.setup_ui()
@@ -103,7 +104,7 @@ class SettingsWindow(QDialog):
         aes_layout.addLayout(opacity_lbl_layout)
 
         opacity_slider = QSlider(Qt.Horizontal)
-        opacity_slider.setRange(10, 100)
+        opacity_slider.setRange(0, 100)
         opacity_slider.setValue(self.settings.get("opacity", 25))
         opacity_slider.valueChanged.connect(self.on_opacity_change)
         aes_layout.addWidget(opacity_slider)
@@ -204,8 +205,6 @@ class SettingsWindow(QDialog):
         self.opacity_val_lbl.setText(f"{val}%")
 
     def choose_custom_color(self):
-        from PyQt5.QtWidgets import QColorDialog
-        from PyQt5.QtGui import QColor
         color = QColorDialog.getColor(QColor(self.custom_color_hex), self, "Choose Background Color")
         if color.isValid():
             self.custom_color_hex = color.name()

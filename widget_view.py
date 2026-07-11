@@ -1,11 +1,13 @@
 import os
 import sys
+import re
 import ctypes
 import subprocess
 from PyQt5.QtCore import Qt, QPoint, QTimer, QTime, QDate, QEasingCurve, QPropertyAnimation, QRect
-from PyQt5.QtGui import QFont, QColor, QCursor
+from PyQt5.QtGui import QFont, QColor, QCursor, QPainter, QBrush, QPen
 from PyQt5.QtWidgets import (
-    QWidget, QHBoxLayout, QVBoxLayout, QLabel, QFrame, QApplication, QPushButton, QProgressBar
+    QWidget, QHBoxLayout, QVBoxLayout, QLabel, QFrame, QApplication,
+    QPushButton, QProgressBar, QSizePolicy
 )
 from widget_model import THEMES
 
@@ -229,8 +231,6 @@ class WidgetBar(QWidget):
             print(f"Failed native styling: {e}")
 
     def paintEvent(self, event):
-        from PyQt5.QtGui import QPainter, QColor, QBrush, QPen
-        import re
         painter = QPainter(self)
         painter.setRenderHint(QPainter.Antialiasing)
         
@@ -283,7 +283,6 @@ class WidgetBar(QWidget):
                 if child.widget():
                     child.widget().deleteLater()
             # Cleanly detach the old layout from self by setting it on a temporary dummy widget
-            from PyQt5.QtWidgets import QWidget
             QWidget().setLayout(old_layout)
 
         orientation = self.settings.get("position", "top")
