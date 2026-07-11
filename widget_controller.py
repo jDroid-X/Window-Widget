@@ -81,20 +81,26 @@ class WidgetController:
 
         # Dock Positions Submenu / Actions
         self.act_top = QAction("Dock to Top (Horizontal Row)", self.tray_menu)
+        self.act_top.setCheckable(True)
         self.act_top.triggered.connect(lambda: self.set_dock_position("top"))
         self.tray_menu.addAction(self.act_top)
 
         self.act_bottom = QAction("Dock to Bottom (Horizontal Row)", self.tray_menu)
+        self.act_bottom.setCheckable(True)
         self.act_bottom.triggered.connect(lambda: self.set_dock_position("bottom"))
         self.tray_menu.addAction(self.act_bottom)
 
         self.act_left = QAction("Dock to Left (Vertical Column)", self.tray_menu)
+        self.act_left.setCheckable(True)
         self.act_left.triggered.connect(lambda: self.set_dock_position("left"))
         self.tray_menu.addAction(self.act_left)
 
         self.act_right = QAction("Dock to Right (Vertical Column)", self.tray_menu)
+        self.act_right.setCheckable(True)
         self.act_right.triggered.connect(lambda: self.set_dock_position("right"))
         self.tray_menu.addAction(self.act_right)
+
+        self.update_tray_ticks()
 
         self.tray_menu.addSeparator()
 
@@ -127,6 +133,13 @@ class WidgetController:
         self.tray_icon.setContextMenu(self.tray_menu)
         self.tray_icon.activated.connect(self.on_tray_activated)
         self.tray_icon.show()
+
+    def update_tray_ticks(self):
+        pos = self.settings.get("position", "top")
+        self.act_top.setChecked(pos == "top")
+        self.act_bottom.setChecked(pos == "bottom")
+        self.act_left.setChecked(pos == "left")
+        self.act_right.setChecked(pos == "right")
 
     def on_tray_activated(self, reason):
         if reason == QSystemTrayIcon.DoubleClick:
@@ -162,6 +175,7 @@ class WidgetController:
         # Keep tray menu state synced
         if hasattr(self, "act_autohide"):
             self.act_autohide.setChecked(self.settings.get("auto_hide", False))
+        self.update_tray_ticks()
 
     def shutdown(self):
         if hasattr(self, "tray_icon") and self.tray_icon:

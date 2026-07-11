@@ -328,15 +328,13 @@ class WidgetBar(QWidget):
             self.containers["gpu"] = card
             self.main_layout.addWidget(card, card_stretch)
 
-        # 4. Storage & External Drives (Auto-discovered)
+        # 4. Storage & External Drives (Grouped together)
         if items_cfg.get("drives", True):
-            self.drive_containers = []
-            selected_drives = self.settings.get("drive_letters", ["C:", "D:"])
-            for drv in selected_drives:
-                card = HardwareCard("drive", f"DRV {drv}", click_action=lambda d=drv: os.startfile(f"{d}\\"))
-                card.setObjectName("drive_card")
-                self.drive_containers.append(card)
-                self.main_layout.addWidget(card, card_stretch)
+            card = HardwareCard("drive", "STORAGE DRIVES (°C)", click_action=lambda: subprocess.Popen(["explorer.exe", "::={20D04FE0-3AEA-1069-A2D8-08002B30309D}"], shell=True))
+            card.setObjectName("drive_card")
+            self.containers["drives"] = card
+            self.main_layout.addWidget(card, card_stretch)
+            self.drive_containers = [card]
 
         # 5. Network Speeds
         if items_cfg.get("wifi", True):
@@ -634,35 +632,25 @@ class WidgetBar(QWidget):
                 name_str = f" [{name}]" if name != "N/A" else ""
                 self.containers["gpu"].set_metrics(f"{percent}%{temp_str}{name_str}", percent, prog_cols, gpu_thresh)
 
-        # 4. Storage Drives (All Internal & External partitions dynamically discovered)
-        if hasattr(self, "drive_containers"):
+        # 4. Storage Drives (Grouped all drives together)
+        if "drives" in self.containers:
             drive_metrics = metrics.get("drives", [])
-            # If new drives were plugged in or detected, update cards
-            while len(self.drive_containers) < len(drive_metrics):
-                drv_idx = len(self.drive_containers)
-                drv_name = drive_metrics[drv_idx]["name"]
-                card = HardwareCard("💾", f"DRV {drv_name}", click_action=lambda d=drv_name: os.startfile(f"{d}\\"))
-                card.setObjectName("drive_card")
-                self.drive_containers.append(card)
-                # Insert before control panel
-                self.main_layout.insertWidget(self.main_layout.count() - 2, card)
-
-            for idx, item in enumerate(self.drive_containers):
-                if idx < len(drive_metrics):
-                    item.show()
-                    drv_name = drive_metrics[idx]["name"]
-                    drv_pct = drive_metrics[idx]["percent"]
-                    free = drive_metrics[idx].get("free", 0.0)
-                    total = drive_metrics[idx].get("total", 0.0)
-                    drv_temp = drive_metrics[idx].get("temp", 34)
-                    
-                    item.lbl.setText(f"💾 DRV {drv_name}")
-                    if is_vertical:
-                        item.set_metrics(f"{drv_pct}% {drv_temp}°C", drv_pct, prog_cols)
-                    else:
-                        item.set_metrics(f"{drv_pct}% {drv_temp}°C | ({free}/{total}GB Free)", drv_pct, prog_cols)
+            parts = []
+            max_pct = 0
+            for d in drive_metrics:
+                drv_name = d["name"]
+                drv_pct = d["percent"]
+                free = d.get("free", 0.0)
+                total = d.get("total", 0.0)
+                drv_temp = d.get("temp", 34)
+                if drv_pct > max_pct:
+                    max_pct = drv_pct
+                if is_vertical:
+                    parts.append(f"{drv_name} {drv_pct}% {drv_temp}°C")
                 else:
-                    item.hide()
+                    parts.append(f"DRV {drv_name} {drv_pct}% {drv_temp}°C ({free}/{total}GB Free)")
+            combined_str = " | ".join(parts) if parts else "No Drives Detected"
+            self.containers["drives"].set_metrics(combined_str, max_pct, prog_cols)
 
         # 5. Network Speeds
         if "wifi" in self.containers:
@@ -769,14 +757,16 @@ class WidgetBar(QWidget):
             self.setGeometry(self.hidden_geometry)
 
     def calculate_hidden_geometry(self, screen, x, y, w, h, pos):
+        actual_w = max(w, self.width())
+        actual_h = max(h, self.height())
         if pos == "top":
-            self.hidden_geometry = QRect(x, -h + 3, w, h)
+            self.hidden_geometry = QRect(x, -actual_h + 3, actual_w, actual_h)
         elif pos == "bottom":
-            self.hidden_geometry = QRect(x, screen.height() - 3, w, h)
+            self.hidden_geometry = QRect(x, screen.height() - 3, actual_w, actual_h)
         elif pos == "left":
-            self.hidden_geometry = QRect(-w + 3, y, w, h)
+            self.hidden_geometry = QRect(-actual_w + 3, y, actual_w, actual_h)
         else: # right
-            self.hidden_geometry = QRect(screen.width() - 3, y, w, h)
+            self.hidden_geometry = QRect(screen.width() - 3, y, actual_w, actual_h)
 
     def enterEvent(self, event):
         self.hovered = True
