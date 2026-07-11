@@ -13,6 +13,6 @@ class DateTimeCard(HardwareCard):
             current_date = QDate.currentDate().toString("ddd d")
             self.set_metrics(f"{current_time} | {current_date}", 0)
         else:
-            current_time = QTime.currentTime().toString("hh:mm:ss")
+            current_time = QTime.currentTime().toString("hh:mm")
             current_date = QDate.currentDate().toString("ddd, MMM d")
             self.set_metrics(f"{current_time} | {current_date}", 0)

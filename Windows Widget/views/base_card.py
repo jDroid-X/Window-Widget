@@ -130,6 +130,43 @@ class HardwareCard(QFrame):
         self.val.setText(value_str)
         self.progress.setValue(max(0, min(100, int(percentage_val))))
         
+        # Determine if vertical from self.settings
+        is_vertical = False
+        if hasattr(self, "settings") and self.settings:
+            is_vertical = (self.settings.get("position", "top") in ["left", "right"])
+
+        # Dynamically size card height in vertical mode to prevent overlapping
+        if is_vertical:
+            num_value_lines = value_str.count("\n") + 1
+            num_title_lines = 1
+            # If title is long (e.g. "STORAGE DRIVES (°C)"), it wraps to 2 lines
+            if len(self.lbl.text()) > 15:
+                num_title_lines = 2
+            
+            # Retrieve size setting
+            icon_sz = "medium"
+            if hasattr(self, "settings") and self.settings:
+                icon_sz = self.settings.get("icon_size", "medium")
+                
+            if icon_sz == "small":
+                base_h = 36
+                line_h = 13
+            elif icon_sz == "large":
+                base_h = 52
+                line_h = 17
+            else: # medium
+                base_h = 44
+                line_h = 15
+                
+            min_h = base_h + ((num_value_lines + num_title_lines - 1) * line_h)
+            self.setMinimumHeight(min_h)
+            self.setFixedHeight(min_h)
+        else:
+            self.setMinimumSize(0, 0)
+            self.setMaximumSize(16777215, 16777215)
+            self.setMinimumHeight(0)
+            self.setMaximumHeight(16777215)
+        
         # Dynamic color scaling based on RAG thresholds (if provided)
         if prog_colors and len(prog_colors) == 3:
             good_col, warn_col, high_col = prog_colors

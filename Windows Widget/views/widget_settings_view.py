@@ -45,7 +45,7 @@ class SettingsWindow(QDialog):
         self.hide_chk.setChecked(self.settings.get("auto_hide", False))
         layout_grid.addWidget(self.hide_chk)
 
-        from widget_controller import is_startup_enabled, set_startup_enabled
+        from controllers.widget_controller import is_startup_enabled, set_startup_enabled
         self.startup_chk = QCheckBox("Launch OmniBar automatically at Windows startup")
         self.startup_chk.setChecked(is_startup_enabled())
         layout_grid.addWidget(self.startup_chk)
