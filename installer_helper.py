@@ -28,6 +28,9 @@ def copy_files():
         for file in files_to_copy:
             src = os.path.join(source_dir, file)
             dst = os.path.join(TARGET_DIR, file)
+            if file == "widget_settings.json" and os.path.exists(dst):
+                print(f"  Preserved existing user configuration ({file})")
+                continue
             if os.path.exists(src) and os.path.abspath(src) != os.path.abspath(dst):
                 shutil.copy2(src, dst)
                 print(f"  Copied {file}")

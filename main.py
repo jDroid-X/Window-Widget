@@ -26,6 +26,7 @@ def main():
     from PyQt5.QtCore import QLockFile, QDir
     global lock_file
     lock_file = QLockFile(QDir.tempPath() + "/omnibar_widget_v2.lock")
+    lock_file.setStaleLockTime(3000)
     if not lock_file.tryLock(100):
         print("OmniBar is already running. Exiting.")
         sys.exit(0)
@@ -38,6 +39,7 @@ def main():
     
     exit_code = app.exec_()
     controller.shutdown()
+    lock_file.unlock()
     sys.exit(exit_code)
 
 if __name__ == '__main__':
