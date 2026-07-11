@@ -113,11 +113,11 @@ try {
 # 3. Upgrade pip and install dependencies
 Write-Host "[3/5] Installing Python dependencies..." -ForegroundColor Yellow
 & $PythonCmd -m pip install --upgrade pip
-& $PythonCmd -m pip install -r "$TargetDir\requirements.txt"
+& $PythonCmd -m pip install -r "$TargetDir\installer\requirements.txt"
 
 # 4. Run installer helper (Desktop shortcut, Startup registry registration)
 Write-Host "[4/5] Configuring startup and desktop shortcut..." -ForegroundColor Yellow
-& $PythonCmd "$TargetDir\installer_helper.py"
+& $PythonCmd "$TargetDir\installer\installer_helper.py"
 
 # 5. Launch OmniBar
 Write-Host "[5/5] Launching OmniBar Hardware Widget..." -ForegroundColor Green
