@@ -135,125 +135,132 @@ class SystemMetricsWorker(QThread):
             GPUtil = None
 
         while self.running:
-            metrics = {}
-            current_time = time.time()
-            dt = current_time - self.prev_time if current_time > self.prev_time else 1.0
-
-            # 1. CPU Fast Metrics & Metadata
-            metrics["cpu_percent"] = psutil.cpu_percent()
-            metrics["cpu_cores_phys"] = self.cpu_cores_phys
-            metrics["cpu_cores_logical"] = self.cpu_cores_logical
-            metrics["cpu_freq"] = None
             try:
-                freq = psutil.cpu_freq()
-                if freq:
-                    metrics["cpu_freq"] = round(freq.current / 1000, 1) # GHz
-            except Exception:
-                pass
+                metrics = {}
+                current_time = time.time()
+                dt = current_time - self.prev_time if current_time > self.prev_time else 1.0
 
-            metrics["cpu_temp"] = None
-            try:
-                temps = psutil.sensors_temperatures()
-                if temps:
-                    for name, entries in temps.items():
-                        if name in ["coretemp", "cpu_thermal", "k10temp"]:
-                            metrics["cpu_temp"] = int(entries[0].current)
-                            break
-            except Exception:
-                pass
-
-            # 2. RAM Fast Detailed Metadata
-            metrics["ram_percent"] = 0
-            metrics["ram_used"] = 0.0
-            metrics["ram_total"] = 0.0
-            try:
-                ram = psutil.virtual_memory()
-                metrics["ram_percent"] = ram.percent
-                metrics["ram_used"] = round(ram.used / (1024 ** 3), 1) # GB
-                metrics["ram_total"] = round(ram.total / (1024 ** 3), 1) # GB
-            except Exception:
-                pass
-
-            # 3. GPU Info
-            metrics["gpu_percent"] = 0
-            metrics["gpu_temp"] = None
-            metrics["gpu_name"] = "N/A"
-            if GPUtil:
+                # 1. CPU Fast Metrics & Metadata
+                metrics["cpu_percent"] = psutil.cpu_percent()
+                metrics["cpu_cores_phys"] = self.cpu_cores_phys
+                metrics["cpu_cores_logical"] = self.cpu_cores_logical
+                metrics["cpu_freq"] = None
                 try:
-                    gpus = GPUtil.getGPUs()
-                    if gpus:
-                        metrics["gpu_percent"] = int(gpus[0].load * 100)
-                        metrics["gpu_temp"] = int(gpus[0].temperature)
-                        metrics["gpu_name"] = gpus[0].name
+                    freq = psutil.cpu_freq()
+                    if freq:
+                        metrics["cpu_freq"] = round(freq.current / 1000, 1) # GHz
                 except Exception:
                     pass
 
-            # 4. Storage Drives & Battery (Tiered Polling: every 5 ticks = ~5 seconds)
-            if self.tick_count % 5 == 0 or not self.cached_drives:
-                drives_list = []
-                # Automatically discover all mounted partitions (internal & external drives)
+                metrics["cpu_temp"] = None
                 try:
-                    discovered_drives = [p.device[:2] for p in psutil.disk_partitions(all=False) if p.fstype and 'cdrom' not in p.opts.lower()]
+                    temps = psutil.sensors_temperatures()
+                    if temps:
+                        for name, entries in temps.items():
+                            if name in ["coretemp", "cpu_thermal", "k10temp"]:
+                                metrics["cpu_temp"] = int(entries[0].current)
+                                break
                 except Exception:
-                    discovered_drives = self.settings.get("drive_letters", ["C:", "D:"])
-                
-                for drv in discovered_drives:
+                    pass
+
+                # 2. RAM Fast Detailed Metadata
+                metrics["ram_percent"] = 0
+                metrics["ram_used"] = 0.0
+                metrics["ram_total"] = 0.0
+                try:
+                    ram = psutil.virtual_memory()
+                    metrics["ram_percent"] = ram.percent
+                    metrics["ram_used"] = round(ram.used / (1024 ** 3), 1) # GB
+                    metrics["ram_total"] = round(ram.total / (1024 ** 3), 1) # GB
+                except Exception:
+                    pass
+
+                # 3. GPU Info
+                metrics["gpu_percent"] = 0
+                metrics["gpu_temp"] = None
+                metrics["gpu_name"] = "N/A"
+                if GPUtil:
                     try:
-                        usage = psutil.disk_usage(drv)
-                        cpu_t = metrics.get("cpu_temp")
-                        if cpu_t is None:
-                            cpu_t = 42
-                        cpu_offset = (cpu_t - 40) * 0.2
-                        simulated_temp = int(32 + max(0.0, cpu_offset) + (usage.percent * 0.08))
-                        drives_list.append({
-                            "name": drv,
-                            "percent": usage.percent,
-                            "free": round(usage.free / (1024 ** 3), 1),
-                            "total": round(usage.total / (1024 ** 3), 1),
-                            "temp": simulated_temp
-                        })
+                        gpus = GPUtil.getGPUs()
+                        if gpus:
+                            metrics["gpu_percent"] = int(gpus[0].load * 100)
+                            metrics["gpu_temp"] = int(gpus[0].temperature)
+                            metrics["gpu_name"] = gpus[0].name
                     except Exception:
                         pass
-                self.cached_drives = drives_list
 
-                # Battery polling
-                bat_info = {"present": False}
+                # 4. Storage Drives & Battery (Tiered Polling: every 5 ticks = ~5 seconds)
+                if self.tick_count % 5 == 0 or not self.cached_drives:
+                    drives_list = []
+                    # Automatically discover all mounted partitions (internal & external drives)
+                    try:
+                        # dict.fromkeys deduplicates while preserving order
+                        discovered_drives = list(dict.fromkeys(
+                            p.device[:2].upper() for p in psutil.disk_partitions(all=False)
+                            if p.fstype and 'cdrom' not in p.opts.lower()
+                        ))
+                    except Exception:
+                        discovered_drives = self.settings.get("drive_letters", ["C:", "D:"])
+                    
+                    for drv in discovered_drives:
+                        try:
+                            usage = psutil.disk_usage(drv)
+                            cpu_t = metrics.get("cpu_temp")
+                            if cpu_t is None:
+                                cpu_t = 42
+                            cpu_offset = (cpu_t - 40) * 0.2
+                            simulated_temp = int(32 + max(0.0, cpu_offset) + (usage.percent * 0.08))
+                            drives_list.append({
+                                "name": drv,
+                                "percent": usage.percent,
+                                "free": round(usage.free / (1024 ** 3), 1),
+                                "total": round(usage.total / (1024 ** 3), 1),
+                                "temp": simulated_temp
+                            })
+                        except Exception:
+                            pass
+                    self.cached_drives = drives_list
+
+                    # Battery polling
+                    bat_info = {"present": False}
+                    try:
+                        bat = psutil.sensors_battery()
+                        if bat:
+                            bat_info = {
+                                "present": True,
+                                "percent": int(bat.percent),
+                                "power_plugged": bat.power_plugged
+                            }
+                    except Exception:
+                        pass
+                    self.cached_battery = bat_info
+
+                metrics["drives"] = self.cached_drives
+                metrics["battery"] = self.cached_battery
+
+                # 5. Network Speed (Diff bytes)
                 try:
-                    bat = psutil.sensors_battery()
-                    if bat:
-                        bat_info = {
-                            "present": True,
-                            "percent": int(bat.percent),
-                            "power_plugged": bat.power_plugged
-                        }
+                    net_io = psutil.net_io_counters()
+                    bytes_sent = net_io.bytes_sent
+                    bytes_recv = net_io.bytes_recv
+                    
+                    upload_speed = (bytes_sent - self.prev_net_sent) / dt
+                    download_speed = (bytes_recv - self.prev_net_recv) / dt
+                    
+                    self.prev_net_sent = bytes_sent
+                    self.prev_net_recv = bytes_recv
                 except Exception:
-                    pass
-                self.cached_battery = bat_info
+                    upload_speed = 0
+                    download_speed = 0
+                    
+                self.prev_time = current_time
+                metrics["net_upload"] = max(0.0, upload_speed)
+                metrics["net_download"] = max(0.0, download_speed)
 
-            metrics["drives"] = self.cached_drives
-            metrics["battery"] = self.cached_battery
-
-            # 5. Network Speed (Diff bytes)
-            try:
-                net_io = psutil.net_io_counters()
-                bytes_sent = net_io.bytes_sent
-                bytes_recv = net_io.bytes_recv
-                
-                upload_speed = (bytes_sent - self.prev_net_sent) / dt
-                download_speed = (bytes_recv - self.prev_net_recv) / dt
-                
-                self.prev_net_sent = bytes_sent
-                self.prev_net_recv = bytes_recv
-            except Exception:
-                upload_speed = 0
-                download_speed = 0
-                
-            self.prev_time = current_time
-            metrics["net_upload"] = max(0.0, upload_speed)
-            metrics["net_download"] = max(0.0, download_speed)
-
-            self.metrics_updated.emit(metrics)
-            self.tick_count += 1
+                self.metrics_updated.emit(metrics)
+                self.tick_count += 1
+            except Exception as e:
+                print(f"Metrics worker iteration error: {e}")
             self.msleep(1000) # Poll fast loop every 1000ms
 
     def stop(self):
@@ -284,6 +291,10 @@ class SettingsManager:
                                 self.settings[key].update(loaded[key])
                             else:
                                 self.settings[key] = loaded[key]
+                    # Schema migration: inject any new DEFAULT_SETTINGS keys absent from old JSON
+                    for key, default_val in DEFAULT_SETTINGS.items():
+                        if key not in loaded:
+                            pass  # self.settings already has default from __init__, keep it
             except Exception as e:
                 print(f"Error loading settings: {e}")
 

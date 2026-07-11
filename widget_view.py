@@ -622,18 +622,22 @@ class WidgetBar(QWidget):
             else:
                 self.containers["ram"].set_metrics(f"{percent}% ({used}/{total}GB)", percent, prog_cols, ram_thresh)
 
-        # 3. GPU (Explicit Degree Celsius)
+        # 3. GPU — hide if no GPU is detected on this machine
         if "gpu" in self.containers:
             percent = metrics.get("gpu_percent", 0)
             temp = metrics.get("gpu_temp")
             name = metrics.get("gpu_name", "N/A")
-            if is_vertical:
-                temp_str = f" | {temp}°C" if temp is not None else " | 40°C"
-                self.containers["gpu"].set_metrics(f"{percent}%{temp_str}", percent, prog_cols, gpu_thresh)
+            if name == "N/A" and percent == 0 and temp is None:
+                self.containers["gpu"].hide()
             else:
-                temp_str = f" | {temp}°C Celsius" if temp is not None else " | 40°C Celsius"
-                name_str = f" [{name}]" if name != "N/A" else ""
-                self.containers["gpu"].set_metrics(f"{percent}%{temp_str}{name_str}", percent, prog_cols, gpu_thresh)
+                self.containers["gpu"].show()
+                if is_vertical:
+                    temp_str = f" | {temp}°C" if temp is not None else " | --°C"
+                    self.containers["gpu"].set_metrics(f"{percent}%{temp_str}", percent, prog_cols, gpu_thresh)
+                else:
+                    temp_str = f" | {temp}°C Celsius" if temp is not None else " | --°C"
+                    name_str = f" [{name}]" if name != "N/A" else ""
+                    self.containers["gpu"].set_metrics(f"{percent}%{temp_str}{name_str}", percent, prog_cols, gpu_thresh)
 
         # 4. Storage Drives (Grouped all drives together)
         if "drives" in self.containers:
@@ -677,10 +681,11 @@ class WidgetBar(QWidget):
             else:
                 self.containers["wifi"].set_metrics(f"▲ {format_speed(up_speed)} | ▼ {format_speed(down_speed)}", min(100, int((down_speed + up_speed) / (1024 * 50))), prog_cols)
 
-        # 6. Battery
+        # 6. Battery — hide card entirely on desktop PCs with no battery
         if "battery" in self.containers:
             bat = metrics.get("battery", {})
             if bat.get("present", False):
+                self.containers["battery"].show()
                 pct = bat.get("percent", 100)
                 if is_vertical:
                     plug = "🔌" if bat.get("power_plugged") else "🔋"
@@ -689,7 +694,8 @@ class WidgetBar(QWidget):
                     plug = "[AC Charging]" if bat.get("power_plugged") else "[On Battery]"
                     self.containers["battery"].set_metrics(f"{pct}% {plug}", pct, prog_cols)
             else:
-                self.containers["battery"].set_metrics("AC Desktop Power" if not is_vertical else "AC Power", 0, prog_cols)
+                # No battery / desktop PC — hide the card so no misleading "0%" appears
+                self.containers["battery"].hide()
 
         # 7. Live Clock
         if "datetime" in self.containers:
@@ -803,6 +809,8 @@ class WidgetBar(QWidget):
                 self.animate_to(self.hidden_geometry)
 
     def animate_to(self, target_rect):
+        if target_rect is None or self.geometry() == target_rect:
+            return
         if self.slide_anim.state() == QPropertyAnimation.Running:
             self.slide_anim.stop()
         self.slide_anim.setStartValue(self.geometry())
