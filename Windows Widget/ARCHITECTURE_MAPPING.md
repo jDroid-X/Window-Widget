@@ -48,3 +48,23 @@ The entire application executes in strict sequential waterfall order following c
    - Both `apply_live_changes()` and `save_settings()` utilize the shared `collect_settings_dict()` single-source-of-truth method, avoiding any duplicate dictionary construction logic.
 3. **OOP Strategy & Inheritance Enforcement**:
    - All 8 hardware display widgets inherit directly from `HardwareCard` (`base_card.py`), eliminating repeated border, font, layout scaling, and progress bar drawing code.
+
+---
+
+## 4. Concurrency & Lifecycle Segregation Matrix (Sequential vs. Parallel Activities)
+
+### A. Sequential Activities (Main GUI Thread - Deterministic Lifecycle)
+1. **Application Bootstrap (`main.py`)**: High-DPI attributes setup and Single-Instance Lock (`QLockFile`) acquisition.
+2. **MVC Initialization (`WidgetController`)**: State normalization (`SettingsManager`), View instantiation (`WidgetBar`), and bidirectional reference wiring.
+3. **GUI Event Loop (`app.exec_()`)**: Deterministic handling of user clicks, drag events, context menus, and graceful shutdown.
+
+### B. Parallel Activities (Asynchronous Background Threads & Independent Event Timers)
+1. **Telemetry Harvesting (`SystemMetricsWorker` QThread)**:
+   - Runs independently every 1000ms on a background thread so disk/WMI/sensor queries never block GUI rendering.
+   - **Smooth Integration Point**: Emits thread-safe `metrics_updated(dict)` Qt Queued Connection signal across the thread boundary -> received cleanly by `WidgetController.on_metrics_updated()`.
+2. **Edge Auto-Hide Monitor (`QTimer` in `WidgetBar`)**:
+   - Runs independently every 150ms to check mouse hover state.
+   - **Smooth Integration Point**: Triggers non-blocking `QPropertyAnimation` slide transitions when the cursor enters or leaves the trigger edge.
+3. **Real-Time Live Preview (`⚡ Live Preview`)**:
+   - Runs interactively in `SettingsWindow`.
+   - **Smooth Integration Point**: Uses `collect_settings_dict()` batch payload -> `controller.apply_configuration()` to update the live desktop bar without blocking modal dialog input.
