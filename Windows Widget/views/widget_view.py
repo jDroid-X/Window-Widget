@@ -25,7 +25,6 @@ from views.usb_display import UsbCard
 from views.wifi_display import WifiCard
 from views.battery_display import BatteryCard
 from views.datetime_display import DateTimeCard
-from views.group_separator import GroupSeparatorWidget
 
 
 class ActionBadgeButton(QPushButton):
