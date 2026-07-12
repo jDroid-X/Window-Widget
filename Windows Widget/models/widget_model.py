@@ -54,25 +54,14 @@ DEFAULT_SETTINGS = {
 }
 
 THEMES = {
-    "neon_radium": {
-        "bg_color": "rgba(8, 14, 8, {opacity})",
-        "border_color": "rgba(57, 255, 20, 0.3)",
-        "text_color": "#E5FFE5",
-        "accent_color": "#39FF14",
-        "hover_color": "rgba(57, 255, 20, 0.1)",
-        "danger_color": "#FF3333",
-        "progress_good": "#39FF14",
-        "progress_warn": "#FFFF00",
-        "progress_high": "#FF3333"
-    },
-    "radium_rainbow": {
-        "bg_color": "rgba(10, 10, 16, {opacity})",
-        "border_color": "rgba(255, 255, 255, 0.15)",
-        "text_color": "#FFFFFF",
-        "accent_color": "#FF007F",
-        "hover_color": "rgba(255, 255, 255, 0.08)",
-        "danger_color": "#FF1744",
-        "progress_good": "#00FFCC",
+    "sleek_dark": {
+        "bg_color": "rgba(18, 18, 18, {opacity})",
+        "border_color": "rgba(255, 255, 255, 0.18)",
+        "text_color": "#E0E0E0",
+        "accent_color": "#00E5FF",
+        "hover_color": "rgba(255, 255, 255, 0.10)",
+        "danger_color": "#FF5252",
+        "progress_good": "#00E676",
         "progress_warn": "#FFD600",
         "progress_high": "#FF1744"
     },
@@ -98,17 +87,6 @@ THEMES = {
         "progress_warn": "#FDD835",
         "progress_high": "#FF6B6B"
     },
-    "sleek_dark": {
-        "bg_color": "rgba(18, 18, 18, {opacity})",
-        "border_color": "rgba(255, 255, 255, 0.18)",
-        "text_color": "#E0E0E0",
-        "accent_color": "#00E5FF",
-        "hover_color": "rgba(255, 255, 255, 0.10)",
-        "danger_color": "#FF5252",
-        "progress_good": "#00E676",
-        "progress_warn": "#FFD600",
-        "progress_high": "#FF1744"
-    },
     "light_minimal": {
         "bg_color": "rgba(245, 245, 245, {opacity})",
         "border_color": "rgba(0, 0, 0, 0.12)",
@@ -119,6 +97,28 @@ THEMES = {
         "progress_good": "#4CAF50",
         "progress_warn": "#FF9800",
         "progress_high": "#F44336"
+    },
+    "radium_rainbow": {
+        "bg_color": "rgba(10, 10, 16, {opacity})",
+        "border_color": "rgba(255, 255, 255, 0.15)",
+        "text_color": "#FFFFFF",
+        "accent_color": "#FF007F",
+        "hover_color": "rgba(255, 255, 255, 0.08)",
+        "danger_color": "#FF1744",
+        "progress_good": "#00FFCC",
+        "progress_warn": "#FFD600",
+        "progress_high": "#FF1744"
+    },
+    "neon_radium": {
+        "bg_color": "rgba(8, 14, 8, {opacity})",
+        "border_color": "rgba(57, 255, 20, 0.3)",
+        "text_color": "#E5FFE5",
+        "accent_color": "#39FF14",
+        "hover_color": "rgba(57, 255, 20, 0.1)",
+        "danger_color": "#FF3333",
+        "progress_good": "#39FF14",
+        "progress_warn": "#FFFF00",
+        "progress_high": "#FF3333"
     }
 }
 

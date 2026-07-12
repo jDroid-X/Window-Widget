@@ -50,8 +50,8 @@ class SettingsWindow(QDialog):
         self.theme_combo = QComboBox()
         self.theme_combo.setMinimumHeight(26)
         self.theme_combo.addItems([
-            "Neon Radium", "Radium Rainbow", "Vibrant Blue",
-            "Forest Glass", "Sleek Dark", "Light Minimal"
+            "Sleek Dark", "Vibrant Blue", "Forest Glass",
+            "Light Minimal", "Radium Rainbow", "Neon Radium"
         ])
         current_theme = self.settings.get("theme", "sleek_dark").replace("_", " ").title()
         self.theme_combo.setCurrentText(current_theme)
