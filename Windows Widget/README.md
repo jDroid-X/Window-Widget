@@ -31,17 +31,10 @@
 
 You can install and launch **OmniBar** directly from this repository on any Windows PC with Python installed.
 
-### Method 1: One-Line PowerShell Installer (Recommended)
-Open **PowerShell** and run:
-```powershell
-irm https://raw.githubusercontent.com/jDroid-X/Window-Widget/main/install.ps1 | iex
-```
-This command will automatically:
-1. Download the latest version from `https://github.com/jDroid-X/Window-Widget`.
-2. Install files to your user profile directory (`C:\Users\<Username>\OmniBar`).
-3. Install required Python packages (`PyQt5`, `psutil`, `GPUtil`, `pywin32`, `winshell`).
-4. Create the Desktop shortcut (**`jDroid-X OmniBar`**) and register Windows auto-start.
-5. Launch the widget cleanly in the background.
+### Method 1: Download and Verify the Release (Recommended)
+Download the ZIP from the official repository, inspect its contents, extract it, and run `install.bat` from the extracted root folder. This avoids executing remote PowerShell directly from the internet.
+
+The installer requires Python 3.8 or newer, installs the pinned dependencies, creates the desktop shortcut, registers optional Windows startup, and launches one OmniBar instance.
 
 ---
 

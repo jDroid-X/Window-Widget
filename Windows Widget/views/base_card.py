@@ -1,171 +1,163 @@
-import os
-import sys
 from PyQt5.QtCore import Qt, QPoint
 from PyQt5.QtGui import QColor, QPainter, QBrush, QPen
 from PyQt5.QtWidgets import QWidget, QFrame, QVBoxLayout, QHBoxLayout, QLabel, QProgressBar, QSizePolicy
 
-class VectorIconWidget(QWidget):
-    def __init__(self, icon_name, color="#00E5FF"):
-        super().__init__()
-        self.icon_name = icon_name
-        self.color = QColor(color)
-        self.setFixedSize(22, 22)
-        
-    def set_color(self, color):
-        self.color = QColor(color)
-        self.update()
-        
-    def paintEvent(self, event):
-        painter = QPainter(self)
-        painter.setRenderHint(QPainter.Antialiasing)
-        painter.setBrush(Qt.NoBrush)
-        pen = QPen(self.color, 1.8, Qt.SolidLine, Qt.RoundCap, Qt.RoundJoin)
-        painter.setPen(pen)
-        
-        # Simple high-quality vector drawings for main indicators
-        if self.icon_name == "cpu":
-            # Outer chip outline
-            painter.drawRoundedRect(3, 3, 16, 16, 2, 2)
-            # Inner core
-            painter.drawRect(7, 7, 8, 8)
-            # Pins
-            for i in (6, 11, 16):
-                painter.drawLine(i, 0, i, 3)
-                painter.drawLine(i, 19, i, 22)
-                painter.drawLine(0, i, 3, i)
-                painter.drawLine(19, i, 22, i)
-        elif self.icon_name == "ram":
-            # RAM Stick outline
-            painter.drawRect(2, 6, 18, 10)
-            # Connector teeth
-            for x in range(4, 18, 2):
-                painter.drawLine(x, 16, x, 18)
-            # Memory chips
-            painter.drawRect(4, 8, 3, 6)
-            painter.drawRect(9, 8, 3, 6)
-            painter.drawRect(14, 8, 3, 6)
-        elif self.icon_name == "gpu":
-            # GPU Card outline
-            painter.drawRoundedRect(2, 4, 18, 14, 2, 2)
-            # Cooling fan circles
-            painter.drawEllipse(5, 7, 5, 5)
-            painter.drawEllipse(12, 7, 5, 5)
-            # PCIe connector
-            painter.drawLine(4, 18, 12, 18)
-        elif self.icon_name == "drive" or self.icon_name == "💾":
-            # Floppy disk/drive outline
-            painter.drawRoundedRect(3, 3, 16, 16, 2, 2)
-            # Label area
-            painter.drawRect(6, 11, 10, 8)
-            # Sliding shutter
-            painter.drawRect(7, 3, 8, 5)
-        elif self.icon_name == "wifi":
-            # Signal waves
-            painter.drawEllipse(10, 17, 2, 2) # Center dot
-            painter.drawArc(7, 13, 8, 8, 45*16, 90*16)
-            painter.drawArc(4, 9, 14, 14, 45*16, 90*16)
-            painter.drawArc(1, 5, 20, 20, 45*16, 90*16)
-        elif self.icon_name == "battery":
-            # Battery body
-            painter.drawRoundedRect(2, 6, 16, 10, 1, 1)
-            # Positive terminal tip
-            painter.drawRect(18, 9, 2, 4)
-        elif self.icon_name == "datetime":
-            # Clock face
-            painter.drawEllipse(3, 3, 16, 16)
-            # Clock hands (3 o'clock / 12 o'clock)
-            painter.drawLine(11, 11, 11, 6)
-            painter.drawLine(11, 11, 15, 11)
-        else:
-            # Default fallback box
-            painter.drawRect(4, 4, 14, 14)
+from views.icon_view import VectorIconWidget
 
 
 class HardwareCard(QFrame):
     def __init__(self, icon_name, title_str, click_action=None):
         super().__init__()
+        self.setAttribute(Qt.WA_StyledBackground, True)
+        self.setProperty("hardwareCard", "true")
         self.setObjectName("MonitorCard")
         self.click_action = click_action
         
         # Expanding horizontal, preferred vertical size policy
         self.setSizePolicy(QSizePolicy.Expanding, QSizePolicy.Preferred)
+        self.setMinimumWidth(145)
         
         layout = QVBoxLayout(self)
-        layout.setContentsMargins(8, 8, 8, 8)
-        layout.setSpacing(4)
+        layout.setContentsMargins(12, 10, 12, 10)
+        layout.setSpacing(6)
         
-        # Header: Vector Icon + Title
-        header_layout = QHBoxLayout()
-        header_layout.setContentsMargins(0, 0, 0, 0)
-        header_layout.setSpacing(6)
-        header_layout.setAlignment(Qt.AlignCenter)
+        # Side-by-side: Left Column (Icon + Name Below) & Right Column (Metadata Next to Icon)
+        top_hbox = QHBoxLayout()
+        top_hbox.setContentsMargins(0, 0, 0, 0)
+        top_hbox.setSpacing(10)
+        
+        # Left Column: Icon on top, Name below it
+        icon_col = QVBoxLayout()
+        icon_col.setContentsMargins(0, 0, 0, 0)
+        icon_col.setSpacing(3)
+        icon_col.setAlignment(Qt.AlignCenter)
         
         self.icon_widget = VectorIconWidget(icon_name)
-        header_layout.addWidget(self.icon_widget)
+        icon_col.addWidget(self.icon_widget, 0, Qt.AlignCenter)
         
         self.lbl = QLabel(title_str)
         self.lbl.setObjectName("MonitorLabel")
-        self.lbl.setWordWrap(True)
+        self.lbl.setWordWrap(False)
         self.lbl.setAlignment(Qt.AlignCenter)
-        header_layout.addWidget(self.lbl)
-        layout.addLayout(header_layout)
-
-        # Main Value Display
+        icon_col.addWidget(self.lbl, 0, Qt.AlignCenter)
+        
+        top_hbox.addLayout(icon_col)
+        
+        # Right Column: Metadata in front/next to the icon column
+        meta_col = QVBoxLayout()
+        meta_col.setContentsMargins(0, 0, 0, 0)
+        meta_col.setSpacing(2)
+        meta_col.setAlignment(Qt.AlignLeft | Qt.AlignVCenter)
+        
+        # Main Prominent Value Display
         self.val = QLabel("--")
         self.val.setObjectName("MonitorVal")
         self.val.setWordWrap(True)
-        self.val.setAlignment(Qt.AlignCenter)
-        layout.addWidget(self.val)
+        self.val.setAlignment(Qt.AlignLeft | Qt.AlignVCenter)
+        meta_col.addWidget(self.val)
 
-        # Mini Progress Bar (3px height gauge)
+        # Secondary Detail / Subtitle Display
+        self.sub_val = QLabel("")
+        self.sub_val.setObjectName("MonitorSubVal")
+        self.sub_val.setWordWrap(True)
+        self.sub_val.setAlignment(Qt.AlignLeft | Qt.AlignVCenter)
+        meta_col.addWidget(self.sub_val)
+        
+        top_hbox.addLayout(meta_col, 1)
+        layout.addLayout(top_hbox)
+
+        # Mini Progress Bar (4px height gauge)
         self.progress = QProgressBar()
         self.progress.setObjectName("MiniProgress")
         self.progress.setTextVisible(False)
-        self.progress.setFixedHeight(3)
+        self.progress.setFixedHeight(4)
         self.progress.setRange(0, 100)
         self.progress.setValue(0)
         layout.addWidget(self.progress)
         
-    def set_metrics(self, value_str, percentage_val, prog_colors=None, thresholds=None):
+    def paintEvent(self, event):
+        super().paintEvent(event)
+        painter = QPainter(self)
+        painter.setRenderHint(QPainter.Antialiasing)
+        
+        # Crisp visible base card border
+        border_color = QColor(255, 255, 255, 65)
+        if hasattr(self, "settings") and self.settings:
+            if self.settings.get("custom_border_enabled", True):
+                hex_col = self.settings.get("custom_border_color", "#00E5FF")
+                border_color = QColor(hex_col)
+                border_color.setAlpha(160)
+                
+        if hasattr(self, "settings") and self.settings and self.settings.get("show_card_border", True) is False:
+            return
+
+        radius = 7
+        if hasattr(self, "settings") and self.settings and self.settings.get("card_radius") is not None:
+            radius = int(self.settings.get("card_radius", 7))
+            
+        pen = QPen(border_color, 1.2)
+        painter.setPen(pen)
+        painter.setBrush(Qt.NoBrush)
+        painter.drawRoundedRect(self.rect().adjusted(1, 1, -1, -1), radius, radius)
+        
+    def apply_layout_scale(self, size_mode="medium", is_vertical=False):
+        """Universal OOP responsive layout sizing for Small, Medium, and Large views."""
+        self.icon_widget.set_size(size_mode)
+
+        if size_mode == "small":
+            min_w = 150 if is_vertical else 130
+            min_h = 54 if is_vertical else 48
+            self.layout().setContentsMargins(8, 6, 8, 6)
+            self.layout().setSpacing(4)
+        elif size_mode == "large":
+            min_w = 200 if is_vertical else 175
+            min_h = 76 if is_vertical else 66
+            self.layout().setContentsMargins(14, 10, 14, 10)
+            self.layout().setSpacing(8)
+        else:  # medium (Default)
+            min_w = 175 if is_vertical else 150
+            min_h = 64 if is_vertical else 54
+            self.layout().setContentsMargins(10, 8, 10, 8)
+            self.layout().setSpacing(6)
+
+        if hasattr(self, "settings") and self.settings:
+            if self.settings.get("card_padding") is not None:
+                pad = int(self.settings.get("card_padding", 8))
+                self.layout().setContentsMargins(pad + 2, pad, pad + 2, pad)
+            if self.settings.get("card_min_width") is not None:
+                min_w = int(self.settings.get("card_min_width", min_w))
+            if self.settings.get("card_min_height") is not None:
+                min_h = int(self.settings.get("card_min_height", min_h))
+            ff = str(self.settings.get("font_family", "Segoe UI"))
+            v_sz = int(self.settings.get("card_val_font_size", 11))
+            s_sz = int(self.settings.get("card_sub_font_size", 9))
+            show_txt_border = bool(self.settings.get("show_textbox_border", False))
+            txt_border_css = "border: 1px solid rgba(0, 229, 255, 140); border-radius: 4px; padding: 2px 5px;" if show_txt_border else "border: none; padding: 0px;"
+            self.val.setStyleSheet(f"font-family: '{ff}'; font-size: {v_sz}pt; font-weight: bold; {txt_border_css}")
+            self.lbl.setStyleSheet(f"font-family: '{ff}'; font-size: {s_sz}pt;")
+            self.sub_val.setStyleSheet(f"font-family: '{ff}'; font-size: {s_sz}pt;")
+
+        icon_h = 18 if size_mode == "small" else (28 if size_mode == "large" else 22)
+        self.val.setFixedHeight(icon_h)
+
+        self.setMinimumWidth(min_w)
+        self.setMinimumHeight(min_h)
+        self.setMaximumSize(16777215, 16777215)
+
+    def set_metrics(self, value_str, percentage_val, prog_colors=None, thresholds=None, sub_str=""):
         self.val.setText(value_str)
+        if sub_str:
+            self.sub_val.setText(sub_str)
+            self.sub_val.show()
+        else:
+            self.sub_val.hide()
         self.progress.setValue(max(0, min(100, int(percentage_val))))
         
-        # Determine if vertical from self.settings
-        is_vertical = False
+        # Automatically adjust scale profile if settings are available
         if hasattr(self, "settings") and self.settings:
-            is_vertical = (self.settings.get("position", "top") in ["left", "right"])
-
-        # Dynamically size card height in vertical mode to prevent overlapping
-        if is_vertical:
-            num_value_lines = value_str.count("\n") + 1
-            num_title_lines = 1
-            # If title is long (e.g. "STORAGE DRIVES (°C)"), it wraps to 2 lines
-            if len(self.lbl.text()) > 15:
-                num_title_lines = 2
-            
-            # Retrieve size setting
-            icon_sz = "medium"
-            if hasattr(self, "settings") and self.settings:
-                icon_sz = self.settings.get("icon_size", "medium")
-                
-            if icon_sz == "small":
-                base_h = 36
-                line_h = 13
-            elif icon_sz == "large":
-                base_h = 52
-                line_h = 17
-            else: # medium
-                base_h = 44
-                line_h = 15
-                
-            min_h = base_h + ((num_value_lines + num_title_lines - 1) * line_h)
-            self.setMinimumHeight(min_h)
-            self.setFixedHeight(min_h)
-        else:
-            self.setMinimumSize(0, 0)
-            self.setMaximumSize(16777215, 16777215)
-            self.setMinimumHeight(0)
-            self.setMaximumHeight(16777215)
+            is_vert = (self.settings.get("position", "top") in ["left", "right"])
+            sz = self.settings.get("icon_size", "medium")
+            self.apply_layout_scale(sz, is_vert)
         
         # Dynamic color scaling based on RAG thresholds (if provided)
         if prog_colors and len(prog_colors) == 3:

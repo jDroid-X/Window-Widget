@@ -21,9 +21,11 @@ from views.cpu_display import CpuCard
 from views.ram_display import RamCard
 from views.gpu_display import GpuCard
 from views.drives_display import DrivesCard
+from views.usb_display import UsbCard
 from views.wifi_display import WifiCard
 from views.battery_display import BatteryCard
 from views.datetime_display import DateTimeCard
+from views.group_separator import GroupSeparatorWidget
 
 
 class ActionBadgeButton(QPushButton):
@@ -51,24 +53,36 @@ class WidgetBar(QWidget):
         self.setAttribute(Qt.WA_TranslucentBackground, True)
         self.setAttribute(Qt.WA_ShowWithoutActivating, True)
         self.setAttribute(Qt.WA_StyledBackground, True)
-        
         self.drag_position = QPoint()
         self.hovered = False
         self.update_tick = 0
-        
         self.slide_anim = QPropertyAnimation(self, b"geometry")
         self.slide_anim.setDuration(240)
         self.slide_anim.setEasingCurve(QEasingCurve.OutCubic)
-        
         self.edge_check_timer = QTimer(self)
         self.edge_check_timer.setInterval(180)
         self.edge_check_timer.timeout.connect(self.check_mouse_edges)
         self.edge_check_timer.start()
 
+        # Build before the metrics worker can deliver its first update.
+        self.initial_show = True
         self.setup_ui()
         self.apply_theme()
         self.reposition_and_resize()
         self.apply_native_windows_styles()
+        # Initial display flag: show the bar for a short period before auto‑hide takes effect
+        self.initial_show = True
+        # After 5 seconds, disable the initial‑show mode so normal auto‑hide behavior applies
+        QTimer.singleShot(5000, self._end_initial_show)
+
+    def _end_initial_show(self):
+        """Callback to end the temporary initial-show period.
+        Once called, the bar will respect the user's auto-hide setting.
+        """
+        self.initial_show = False
+        # Re-evaluate positioning to apply hidden geometry if needed
+        self.reposition_and_resize()
+
 
     def apply_native_windows_styles(self):
         try:
@@ -160,16 +174,17 @@ class WidgetBar(QWidget):
 
         orientation = self.settings.get("position", "top")
         
-        # SINGLE HORIZONTAL ROW for Top / Bottom
-        # SINGLE VERTICAL COLUMN for Left / Right
+        margin_val = int(self.settings.get("bar_margin", 10))
+        spacing_val = int(self.settings.get("card_spacing", 4))
+
         if orientation in ["top", "bottom"]:
             self.main_layout = QHBoxLayout(self)
-            self.main_layout.setContentsMargins(10, 6, 10, 6)
-            self.main_layout.setSpacing(8)
+            self.main_layout.setContentsMargins(margin_val + 4, margin_val, margin_val + 4, margin_val)
+            self.main_layout.setSpacing(spacing_val)
         else:
             self.main_layout = QVBoxLayout(self)
-            self.main_layout.setContentsMargins(6, 10, 6, 10)
-            self.main_layout.setSpacing(8)
+            self.main_layout.setContentsMargins(margin_val, margin_val + 4, margin_val, margin_val + 4)
+            self.main_layout.setSpacing(spacing_val)
         
         self.containers = {}
         items_cfg = self.settings.get("items", {})
@@ -181,45 +196,44 @@ class WidgetBar(QWidget):
             subprocess.Popen(["control.exe", "ncpa.cpl"])
 
         card_stretch = 1 if orientation in ["top", "bottom"] else 0
+        is_vert = orientation in ["left", "right"]
 
-        # 1. CPU Card (with explicit Degree Celsius)
         if items_cfg.get("cpu", True):
             card = CpuCard(self.settings, click_action=None)
             self.containers["cpu"] = card
             self.main_layout.addWidget(card, card_stretch)
 
-        # 2. RAM Card
         if items_cfg.get("ram", True):
             card = RamCard(self.settings, click_action=None)
             self.containers["ram"] = card
             self.main_layout.addWidget(card, card_stretch)
 
-        # 3. GPU Card (with explicit Degree Celsius)
         if items_cfg.get("gpu", True):
             card = GpuCard(self.settings, click_action=None)
             self.containers["gpu"] = card
             self.main_layout.addWidget(card, card_stretch)
 
-        # 4. Storage & External Drives (Grouped together)
         if items_cfg.get("drives", True):
             card = DrivesCard(self.settings, click_action=lambda: subprocess.Popen(["explorer.exe", "::={20D04FE0-3AEA-1069-A2D8-08002B30309D}"]))
             self.containers["drives"] = card
             self.main_layout.addWidget(card, card_stretch)
             self.drive_containers = [card]
 
-        # 5. Network Speeds
+        if items_cfg.get("usb", True):
+            card = UsbCard(self.settings)
+            self.containers["usb"] = card
+            self.main_layout.addWidget(card, card_stretch)
+
         if items_cfg.get("wifi", True):
             card = WifiCard(self.settings, click_action=launch_net)
             self.containers["wifi"] = card
             self.main_layout.addWidget(card, card_stretch)
 
-        # 6. Battery / Power
         if items_cfg.get("battery", True):
             card = BatteryCard(self.settings)
             self.containers["battery"] = card
             self.main_layout.addWidget(card, card_stretch)
 
-        # 7. Live Clock
         if items_cfg.get("datetime", True):
             card = DateTimeCard(self.settings)
             self.containers["datetime"] = card
@@ -273,17 +287,20 @@ class WidgetBar(QWidget):
         
         sz = self.settings.get("icon_size", "medium")
         if sz == "small":
-            title_font_size = "10px"
+            title_font_size = "9px"
             val_font_size = "12px"
             badge_font_size = "11px"
+            card_padding = "4px 8px"
         elif sz == "large":
-            title_font_size = "14px"
+            title_font_size = "13px"
             val_font_size = "16px"
-            badge_font_size = "15px"
+            badge_font_size = "14px"
+            card_padding = "8px 14px"
         else: # medium
-            title_font_size = "12px"
+            title_font_size = "11px"
             val_font_size = "14px"
-            badge_font_size = "13px"
+            badge_font_size = "12px"
+            card_padding = "6px 10px"
 
         style = f"""
             WidgetBar {{
@@ -332,20 +349,22 @@ class WidgetBar(QWidget):
                 color: white;
                 border-color: white;
             }}
-            #MonitorCard {{
+            QFrame[hardwareCard="true"] {{
                 background-color: {hover_col};
-                border: 1px solid rgba(255,255,255,0.04);
+                border: 1px solid {border_col};
                 border-radius: 7px;
+                padding: {card_padding};
             }}
-            #MonitorCard:hover {{
-                border-color: {accent_col};
-                background-color: rgba(255, 255, 255, 0.12);
+            QFrame[hardwareCard="true"]:hover {{
+                border: 1px solid {accent_col};
+                background-color: rgba(255, 255, 255, 0.14);
             }}
             #MonitorLabel {{
                 color: {text_col};
                 font-family: 'Segoe UI', Arial, sans-serif;
                 font-size: {title_font_size};
                 font-weight: 600;
+                padding-left: 4px;
                 text-transform: uppercase;
             }}
             #MonitorVal {{
@@ -354,10 +373,28 @@ class WidgetBar(QWidget):
                 font-size: {val_font_size};
                 font-weight: 700;
             }}
+            #MonitorSubVal {{
+                color: {text_col};
+                opacity: 0.85;
+                font-family: 'Segoe UI', Arial, sans-serif;
+                font-size: {title_font_size};
+                font-weight: 500;
+            }}
             #MiniProgress {{
-                background-color: rgba(255,255,255,0.06);
+                background-color: rgba(255,255,255,0.08);
                 border: none;
-                border-radius: 1px;
+                border-radius: 2px;
+            }}
+            #GroupSeparator {{
+                background-color: rgba(255, 255, 255, 0.04);
+                border-radius: 4px;
+            }}
+            #GroupSeparatorLabel {{
+                color: {accent_col};
+                font-family: 'Segoe UI', Arial, sans-serif;
+                font-size: 9px;
+                font-weight: 700;
+                letter-spacing: 1px;
             }}
         """
 
@@ -488,6 +525,10 @@ class WidgetBar(QWidget):
         if "drives" in self.containers:
             self.containers["drives"].update_display(metrics, is_vertical, prog_cols)
 
+        # 4.5 USB Hot-Swap Drives
+        if "usb" in self.containers:
+            self.containers["usb"].update_display(metrics, is_vertical, prog_cols)
+
         # 5. Network Speeds
         if "wifi" in self.containers:
             self.containers["wifi"].update_display(metrics, is_vertical, prog_cols)
@@ -507,23 +548,33 @@ class WidgetBar(QWidget):
             self.opacity_badge.setText(opacity_text)
 
     def reposition_and_resize(self):
-        screen = QApplication.primaryScreen().geometry()
+        monitor_index = self.settings.get("monitor_index")
+        if monitor_index is not None:
+            screens = QApplication.screens()
+            if 0 <= monitor_index < len(screens):
+                active_screen = screens[monitor_index]
+            else:
+                active_screen = QApplication.primaryScreen()
+        else:
+            active_screen = QApplication.screenAt(QCursor.pos()) or QApplication.primaryScreen()
+        screen = active_screen.availableGeometry()
         pos = self.settings.get("position", "top")
         sz = self.settings.get("icon_size", "medium")
         
+        self.adjustSize()
         if pos in ["top", "bottom"]:
             if sz == "small":
-                bar_height = 54
+                bar_height = 48
             elif sz == "large":
-                bar_height = 82
+                bar_height = 76
             else: # medium
-                bar_height = 68
-            # Keep exactly 3cm (115px) gap on both sides of screen
-            gap = 115
-            w = screen.width() - (2 * gap)
-            h = bar_height
-            x = gap
-            y = 4 if pos == "top" else screen.height() - h - 4
+                bar_height = 64
+            # Convert the documented 3 cm margin using the active display DPI.
+            gap = max(8, round(active_screen.logicalDotsPerInchX() * 3 / 2.54))
+            w = max(1, screen.width() - (2 * gap))
+            h = max(bar_height, self.layout().sizeHint().height())
+            x = screen.x() + gap
+            y = screen.y() + 4 if pos == "top" else screen.bottom() - h - 3
         else: # left/right vertical column
             # Max width ~3cm (approx 130px - 165px depending on scale)
             if sz == "small":
@@ -533,9 +584,8 @@ class WidgetBar(QWidget):
             else:
                 w = 145
             
-            # Force layout calculations so sizeHint is accurate
-            self.adjustSize()
-            h = self.layout().minimumSize().height()
+            # Smart best fit variable vertical height
+            h = max(self.layout().sizeHint().height(), self.layout().minimumSize().height())
             
             # If height is not initialized/rendered yet, use dynamic estimate
             if h <= 50:
@@ -546,14 +596,15 @@ class WidgetBar(QWidget):
                 card_h = 44 if sz == "small" else (56 if sz == "large" else 50)
                 h = num_items * (card_h + 8) + 20
 
-            x = 4 if pos == "left" else screen.width() - w - 4
-            y = (screen.height() - h) // 2
+            x = screen.x() + 4 if pos == "left" else screen.right() - w - 3
+            y = screen.y() + (screen.height() - h) // 2
 
         self.normal_geometry = QRect(x, y, w, h)
         self.setFixedSize(w, h)
         self.calculate_hidden_geometry(screen, x, y, w, h, pos)
 
-        if not self.settings.get("auto_hide", False) or self.hovered:
+        # Show bar if auto‑hide disabled, mouse hovered, or during the initial‑show period
+        if not self.settings.get("auto_hide", False) or self.hovered or getattr(self, "initial_show", False):
             self.move(self.normal_geometry.topLeft())
         else:
             self.move(self.hidden_geometry.topLeft())
@@ -564,11 +615,11 @@ class WidgetBar(QWidget):
         if pos == "top":
             self.hidden_geometry = QRect(x, -actual_h + 3, actual_w, actual_h)
         elif pos == "bottom":
-            self.hidden_geometry = QRect(x, screen.height() - 3, actual_w, actual_h)
+            self.hidden_geometry = QRect(x, screen.bottom() - 2, actual_w, actual_h)
         elif pos == "left":
             self.hidden_geometry = QRect(-actual_w + 3, y, actual_w, actual_h)
         else: # right
-            self.hidden_geometry = QRect(screen.width() - 3, y, actual_w, actual_h)
+            self.hidden_geometry = QRect(screen.right() - 2, y, actual_w, actual_h)
 
     def enterEvent(self, event):
         self.hovered = True

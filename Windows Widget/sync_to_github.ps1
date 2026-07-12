@@ -39,7 +39,8 @@ Write-Host "[2/4] Configuring Remote Origin ($RepoUrl)..." -ForegroundColor Yell
 & $GitCmd remote add origin $RepoUrl
 
 Write-Host "[3/4] Staging & Committing Files..." -ForegroundColor Yellow
-& $GitCmd add .
+# .gitignore excludes local settings, logs, bytecode, and test caches.
+& $GitCmd add --all
 & $GitCmd commit -m "Update OmniBar: Spectral themes, smart docking, 2-row desktop shortcut, auto-installer" 2>$null
 
 Write-Host "[4/4] Pushing to GitHub (main branch)..." -ForegroundColor Yellow

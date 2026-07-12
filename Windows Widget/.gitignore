@@ -1,0 +1,10 @@
+__pycache__/
+.pytest_cache/
+*.py[cod]
+*.log
+install_log.txt
+error_log.txt
+err.log
+out.log
+models/widget_settings.json
+tests/.tmp/

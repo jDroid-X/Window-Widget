@@ -15,18 +15,11 @@ class GpuCard(HardwareCard):
         vram_total = metrics.get("gpu_vram_total", 0.0)
         
         if name == "N/A" and percent == 0 and temp is None:
-            self.hide()
+            self.show()
+            self.set_metrics("IDLE / N/A", 0, prog_cols, gpu_thresh, sub_str="Integrated / No NVML")
         else:
             self.show()
-            if is_vertical:
-                temp_str = f" | {temp}°C" if temp is not None else " | --°C"
-                vram_str = f" ({vram_used}G)" if vram_used else ""
-                self.set_metrics(f"{percent}%{temp_str}{vram_str}", percent, prog_cols, gpu_thresh)
-            else:
-                temp_str = f" | {temp}°C Celsius" if temp is not None else " | --°C"
-                name_str = f" [{name}]" if name != "N/A" else ""
-                vram_str = f" | {vram_used}/{vram_total}GB VRAM" if vram_used else ""
-                self.set_metrics(f"{percent}%{temp_str}{vram_str}{name_str}", percent, prog_cols, gpu_thresh)
-                
-            gpu_title = f"GPU ({gpu_thresh[0]}/{gpu_thresh[1]}%)"
-            self.lbl.setText(gpu_title)
+            temp_str = f"{temp}°C" if temp is not None else ""
+            short_name = name.split()[-2] + " " + name.split()[-1] if len(name.split()) >= 2 else name
+            sub_details = " | ".join([s for s in [temp_str, short_name] if s])
+            self.set_metrics(f"{percent}% LOAD", percent, prog_cols, gpu_thresh, sub_str=sub_details)

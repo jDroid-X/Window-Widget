@@ -23,49 +23,36 @@ def _apply_dpi_settings():
 
 
 def _acquire_lock(lock_path):
-    """Acquire single-instance lock. Returns QLockFile on success, or None on failure after user declines."""
-    # Clean up stale lock left by a previous crash
-    if os.path.exists(lock_path):
-        try:
-            os.remove(lock_path)
-            print("[INFO] Removed stale lock file.")
-        except OSError:
-            pass  # File may be legitimately locked by a running instance
-
+    """Acquire single-instance lock. Automatically terminates any older instance so the new instance takes over cleanly."""
     lock_file = QLockFile(lock_path)
-    lock_file.setStaleLockTime(3000)
+    lock_file.setStaleLockTime(30000)
 
     if lock_file.tryLock(100):
         return lock_file
 
-    # Lock acquisition failed — ask the user what to do
-    response = QMessageBox.question(
-        None,
-        "OmniBar Already Running",
-        "Another instance of OmniBar appears to be running.\n\n"
-        "• Click 'Yes' to force-start a new instance.\n"
-        "• Click 'No' to exit.",
-        QMessageBox.Yes | QMessageBox.No,
-        QMessageBox.No,
-    )
-    if response == QMessageBox.Yes:
-        # Force-remove the lock and retry
-        try:
-            lock_file.removeStaleLockFile()
-        except Exception:
-            pass
-        try:
-            os.remove(lock_path)
-        except OSError:
-            pass
-        lock_file = QLockFile(lock_path)
-        lock_file.setStaleLockTime(3000)
-        if lock_file.tryLock(100):
-            return lock_file
+    # Automatically terminate existing/old OmniBar instance
+    try:
+        import psutil
+        current_pid = os.getpid()
+        for p in psutil.process_iter(['pid', 'name', 'cmdline']):
+            if p.info['pid'] == current_pid:
+                continue
+            cmd = ' '.join(p.info.get('cmdline') or []).lower()
+            if 'main.py' in cmd and ('omnibar' in cmd or 'windows widget' in cmd):
+                try:
+                    p.terminate()
+                    p.wait(timeout=2)
+                except Exception:
+                    pass
+    except Exception:
+        pass
 
-    # User declined or second attempt also failed
-    return None
+    # Remove stale lock file if present and retry acquiring lock
+    lock_file.removeStaleLockFile()
+    if lock_file.tryLock(500):
+        return lock_file
 
+    return lock_file
 
 def main():
     _apply_dpi_settings()
@@ -93,4 +80,14 @@ def main():
 
 
 if __name__ == '__main__':
-    main()
+    try:
+        main()
+    except Exception as e:
+        import traceback, os
+        log_file = os.path.join(os.path.dirname(__file__), "error_log.txt")
+        with open(log_file, "a", encoding="utf-8") as f:
+            f.write("--- Exception during startup ---\n")
+            f.write(traceback.format_exc())
+        print(f"[ERROR] OmniBar failed to start: {e}")
+        # Ensure the application exits cleanly
+        sys.exit(1)

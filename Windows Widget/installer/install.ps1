@@ -23,29 +23,7 @@ if (Get-Command python -ErrorAction SilentlyContinue) {
 } elseif (Get-Command py -ErrorAction SilentlyContinue) {
     $PythonCmd = "py"
 } else {
-    Write-Host "Python not found. Downloading and installing Python automatically..." -ForegroundColor Yellow
-    $PythonInstallerPath = "$env:TEMP\python-installer.exe"
-    $PythonUrl = "https://www.python.org/ftp/python/3.11.9/python-3.11.9-amd64.exe"
-    
-    [Net.ServicePointManager]::SecurityProtocol = [Net.SecurityProtocolType]::Tls12
-    Invoke-WebRequest -Uri $PythonUrl -OutFile $PythonInstallerPath -UseBasicParsing
-    
-    Write-Host "Installing Python quietly (this may take a minute)..." -ForegroundColor Yellow
-    Start-Process -FilePath $PythonInstallerPath -ArgumentList "/quiet InstallAllUsers=0 PrependPath=1" -Wait
-    
-    # Clean installer
-    Remove-Item $PythonInstallerPath -Force -ErrorAction SilentlyContinue
-    
-    # Reload environment variables for this session
-    $env:Path = [System.Environment]::GetEnvironmentVariable("Path","Machine") + ";" + [System.Environment]::GetEnvironmentVariable("Path","User")
-    
-    if (Get-Command python -ErrorAction SilentlyContinue) {
-        $PythonCmd = "python"
-        Write-Host "Python installed successfully!" -ForegroundColor Green
-    } else {
-        Write-Host "[ERROR] Auto-installation of Python failed. Please download Python manually from https://www.python.org/downloads/" -ForegroundColor Red
-        return
-    }
+    throw "Python 3.8 or later is required. Install it from https://www.python.org/downloads/ and rerun this installer."
 }
 
 # 2. Download and extract latest code from GitHub repository
@@ -110,16 +88,25 @@ try {
     }
 }
 
-# 3. Upgrade pip and install dependencies
-Write-Host "[3/5] Installing Python dependencies..." -ForegroundColor Yellow
-& $PythonCmd -m pip install --upgrade pip
-& $PythonCmd -m pip install -r "$TargetDir\installer\requirements.txt"
+# 3. Terminate any running OmniBar instances to prevent duplicates
+Write-Host "[3/5] Stopping any running OmniBar instances..." -ForegroundColor Yellow
+try {
+    # Kill pythonw/python processes whose command line contains OmniBar\main.py
+    Get-CimInstance Win32_Process | Where-Object {
+        $_.CommandLine -and $_.CommandLine -match 'OmniBar.*main\.py'
+    } | ForEach-Object {
+        Write-Host "      Terminating PID $($_.ProcessId) ($($_.Name))" -ForegroundColor Gray
+        Stop-Process -Id $_.ProcessId -Force -ErrorAction SilentlyContinue
+    }
+} catch {
+    Write-Host "      (No existing instances found)" -ForegroundColor Gray
+}
 
-# 4. Run installer helper (Desktop shortcut, Startup registry registration)
-Write-Host "[4/5] Configuring startup and desktop shortcut..." -ForegroundColor Yellow
+# 4. Run installer helper (dependencies, shortcut, and startup registration)
+Write-Host "[4/5] Configuring OmniBar..." -ForegroundColor Yellow
 & $PythonCmd "$TargetDir\installer\installer_helper.py"
 
-# 5. Launch OmniBar
+# 5. Launch OmniBar (single instance only)
 Write-Host "[5/5] Launching OmniBar Hardware Widget..." -ForegroundColor Green
 try {
     $PythonwCmd = "pythonw.exe"

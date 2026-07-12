@@ -12,13 +12,8 @@ class RamCard(HardwareCard):
         used = metrics.get("ram_used", 0.0)
         total = metrics.get("ram_total", 0.0)
         
-        if is_vertical:
-            self.set_metrics(f"{percent}% ({used}G)", percent, prog_cols, ram_thresh)
-        else:
-            self.set_metrics(f"{percent}% ({used}/{total}GB)", percent, prog_cols, ram_thresh)
-            
-        ram_title = f"RAM ({ram_thresh[0]}/{ram_thresh[1]}%)"
-        self.lbl.setText(ram_title)
+        sub_str = f"{used} GB / {total} GB"
+        self.set_metrics(f"{percent}% USED", percent, prog_cols, ram_thresh, sub_str=sub_str)
 
         top_ram = metrics.get("top_ram", [])
         if top_ram:

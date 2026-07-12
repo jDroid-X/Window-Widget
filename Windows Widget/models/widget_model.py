@@ -1,16 +1,34 @@
 import os
 import copy
 import json
+import re
+import tempfile
 import psutil
+import ping3
 import time
 from PyQt5.QtCore import QObject, pyqtSignal, QThread, QMutex, QMutexLocker
+from PyQt5.QtWidgets import QApplication
+from PyQt5.QtGui import QCursor
 
 DEFAULT_SETTINGS = {
     "position": "top",          # "top", "bottom", "left", "right"
     "auto_hide": False,         # True or False
     "opacity": 25,              # Default opacity 25% background
     "icon_size": "medium",      # "small", "medium", "large"
+    "bar_margin": 10,           # Outer layout margin around the widget bar (px)
+    "card_spacing": 10,         # Inter-card spacing between widgets (px)
+    "card_padding": 8,          # Internal card padding margin (px)
+    "card_min_width": 150,      # CardView minimum width (px) - Medium default
+    "card_min_height": 54,      # CardView minimum height (px) - Medium default
+    "card_radius": 7,           # Card corner border radius (px) - Medium default
+    "card_val_font_size": 11,   # Primary metric value font size (pt) - Medium default
+    "card_sub_font_size": 9,    # Subtitle metadata font size (pt) - Medium default
+    "show_card_border": True,   # Show Card outer frame border
+    "show_textbox_border": False, # Show border around inner text value box
+    "font_family": "Segoe UI",  # Default UI typography font family
+    "font_size": 10,            # Base font size (pt)
     "theme": "sleek_dark",      # "sleek_dark", "vibrant_blue", "forest_glass", "light_minimal", "radium_rainbow", "neon_radium"
+    "sync_windows_theme": False,
     "custom_bg_enabled": False,
     "custom_bg_color": "#121212",
     "custom_border_enabled": True,
@@ -30,18 +48,31 @@ DEFAULT_SETTINGS = {
         "battery": True,
         "datetime": True
     },
-    "drive_letters": ["C:", "D:"]
+    # An empty list means automatically detect all mounted drives.
+    "drive_letters": [],
+    "monitor_index": None
 }
 
 THEMES = {
-    "sleek_dark": {
-        "bg_color": "rgba(18, 18, 18, {opacity})",
-        "border_color": "rgba(255, 255, 255, 0.12)",
-        "text_color": "#E0E0E0",
-        "accent_color": "#00E5FF",
-        "hover_color": "rgba(255, 255, 255, 0.10)",
-        "danger_color": "#FF5252",
-        "progress_good": "#00E676",
+    "neon_radium": {
+        "bg_color": "rgba(8, 14, 8, {opacity})",
+        "border_color": "rgba(57, 255, 20, 0.3)",
+        "text_color": "#E5FFE5",
+        "accent_color": "#39FF14",
+        "hover_color": "rgba(57, 255, 20, 0.1)",
+        "danger_color": "#FF3333",
+        "progress_good": "#39FF14",
+        "progress_warn": "#FFFF00",
+        "progress_high": "#FF3333"
+    },
+    "radium_rainbow": {
+        "bg_color": "rgba(10, 10, 16, {opacity})",
+        "border_color": "rgba(255, 255, 255, 0.15)",
+        "text_color": "#FFFFFF",
+        "accent_color": "#FF007F",
+        "hover_color": "rgba(255, 255, 255, 0.08)",
+        "danger_color": "#FF1744",
+        "progress_good": "#00FFCC",
         "progress_warn": "#FFD600",
         "progress_high": "#FF1744"
     },
@@ -67,6 +98,17 @@ THEMES = {
         "progress_warn": "#FDD835",
         "progress_high": "#FF6B6B"
     },
+    "sleek_dark": {
+        "bg_color": "rgba(18, 18, 18, {opacity})",
+        "border_color": "rgba(255, 255, 255, 0.18)",
+        "text_color": "#E0E0E0",
+        "accent_color": "#00E5FF",
+        "hover_color": "rgba(255, 255, 255, 0.10)",
+        "danger_color": "#FF5252",
+        "progress_good": "#00E676",
+        "progress_warn": "#FFD600",
+        "progress_high": "#FF1744"
+    },
     "light_minimal": {
         "bg_color": "rgba(245, 245, 245, {opacity})",
         "border_color": "rgba(0, 0, 0, 0.12)",
@@ -77,28 +119,6 @@ THEMES = {
         "progress_good": "#4CAF50",
         "progress_warn": "#FF9800",
         "progress_high": "#F44336"
-    },
-    "radium_rainbow": {
-        "bg_color": "rgba(10, 10, 16, {opacity})",
-        "border_color": "rgba(255, 255, 255, 0.15)",
-        "text_color": "#FFFFFF",
-        "accent_color": "#FF007F",
-        "hover_color": "rgba(255, 255, 255, 0.08)",
-        "danger_color": "#FF1744",
-        "progress_good": "#00FFCC",
-        "progress_warn": "#FFD600",
-        "progress_high": "#FF1744"
-    },
-    "neon_radium": {
-        "bg_color": "rgba(8, 14, 8, {opacity})",
-        "border_color": "rgba(57, 255, 20, 0.3)",
-        "text_color": "#E5FFE5",
-        "accent_color": "#39FF14",
-        "hover_color": "rgba(57, 255, 20, 0.1)",
-        "danger_color": "#FF3333",
-        "progress_good": "#39FF14",
-        "progress_warn": "#FFFF00",
-        "progress_high": "#FF3333"
     }
 }
 
@@ -140,7 +160,10 @@ class SystemMetricsWorker(QThread):
         self.cached_top_ram = []
         self.prev_time = time.time()
         self.cached_drives = []
+        self.cached_usb_drives = []
         self.cached_battery = {}
+        self.cached_wmi_gpu = None  # WMI GPU fallback cache (queried once)
+        self.metrics_mutex = QMutex()
 
     def run(self):
         try:
@@ -177,11 +200,6 @@ class SystemMetricsWorker(QThread):
                 except Exception:
                     pass
 
-                if metrics["cpu_temp"] is None:
-                    cpu_u = metrics.get("cpu_percent", 5.0)
-                    fluc = (int(time.time()) % 3) - 1
-                    metrics["cpu_temp"] = int(36 + (cpu_u * 0.42) + fluc)
-
                 # 2. RAM Fast Detailed Metadata
                 metrics["ram_percent"] = 0
                 metrics["ram_used"] = 0.0
@@ -194,12 +212,13 @@ class SystemMetricsWorker(QThread):
                 except Exception:
                     pass
 
-                # 3. GPU Info
+                # 3. GPU Info (GPUtil for NVIDIA, WMI fallback for AMD/Intel/integrated)
                 metrics["gpu_percent"] = 0
                 metrics["gpu_temp"] = None
                 metrics["gpu_name"] = "N/A"
                 metrics["gpu_vram_used"] = 0.0
                 metrics["gpu_vram_total"] = 0.0
+                gpu_found = False
                 if GPUtil:
                     try:
                         gpus = GPUtil.getGPUs()
@@ -209,40 +228,103 @@ class SystemMetricsWorker(QThread):
                             metrics["gpu_name"] = gpus[0].name
                             metrics["gpu_vram_used"] = round(gpus[0].memoryUsed / 1024, 1) # GB
                             metrics["gpu_vram_total"] = round(gpus[0].memoryTotal / 1024, 1) # GB
+                            gpu_found = True
                     except Exception:
                         pass
 
-                # 4. Storage Drives & Battery (Tiered Polling: every 5 ticks = ~5 seconds)
+                # WMI fallback for non-NVIDIA GPUs (AMD, Intel, integrated)
+                # Cached after first query to avoid spawning PowerShell every tick
+                if not gpu_found:
+                    if self.cached_wmi_gpu is None:
+                        try:
+                            import subprocess
+                            wmi_cmd = (
+                                'powershell -NoProfile -Command "'
+                                "Get-CimInstance Win32_VideoController | "
+                                "Select-Object -First 1 -Property Name, AdapterRAM | "
+                                "ForEach-Object { $_.Name + '|' + $_.AdapterRAM }"
+                                '"'
+                            )
+                            result = subprocess.run(
+                                wmi_cmd, capture_output=True, text=True,
+                                timeout=5, shell=True
+                            )
+                            if result.returncode == 0 and result.stdout.strip():
+                                parts = result.stdout.strip().split("|")
+                                gpu_name = parts[0].strip()
+                                gpu_vram = 0.0
+                                if len(parts) > 1 and parts[1].strip():
+                                    try:
+                                        gpu_vram = round(int(parts[1].strip()) / (1024 ** 3), 1)
+                                    except (ValueError, OverflowError):
+                                        pass
+                                self.cached_wmi_gpu = {"name": gpu_name, "vram_total": gpu_vram}
+                            else:
+                                self.cached_wmi_gpu = {}  # Empty dict = queried but nothing found
+                        except Exception:
+                            self.cached_wmi_gpu = {}
+                    # Apply cached WMI GPU info
+                    if self.cached_wmi_gpu:
+                        metrics["gpu_name"] = self.cached_wmi_gpu.get("name", "N/A")
+                        metrics["gpu_vram_total"] = self.cached_wmi_gpu.get("vram_total", 0.0)
+
+                # 4. Storage Drives, USB Hot-Swap & Battery (Tiered Polling: every 5 ticks = ~5 seconds)
                 if self.tick_count % 5 == 0 or not self.cached_drives:
                     drives_list = []
-                    # Automatically discover all mounted partitions (internal & external drives)
+                    usb_list = []
                     try:
-                        # dict.fromkeys deduplicates while preserving order
-                        discovered_drives = list(dict.fromkeys(
-                            p.device[:2].upper() for p in psutil.disk_partitions(all=False)
-                            if p.fstype and 'cdrom' not in p.opts.lower()
-                        ))
+                        import ctypes
+                        for p in psutil.disk_partitions(all=True):
+                            if not p.fstype or 'cdrom' in p.opts.lower():
+                                continue
+                            drv = p.device[:2].upper()
+                            path_str = drv + "\\"
+                            is_removable = ('removable' in p.opts.lower())
+                            vol_label = ""
+                            try:
+                                dtype = ctypes.windll.kernel32.GetDriveTypeW(path_str)
+                                if dtype == 2:  # DRIVE_REMOVABLE
+                                    is_removable = True
+                                vol_buf = ctypes.create_unicode_buffer(256)
+                                fs_buf = ctypes.create_unicode_buffer(256)
+                                serial = ctypes.c_ulong()
+                                max_len = ctypes.c_ulong()
+                                flags = ctypes.c_ulong()
+                                if ctypes.windll.kernel32.GetVolumeInformationW(
+                                    path_str, vol_buf, 256,
+                                    ctypes.byref(serial), ctypes.byref(max_len), ctypes.byref(flags),
+                                    fs_buf, 256
+                                ):
+                                    vol_label = vol_buf.value
+                            except Exception:
+                                pass
+                            
+                            try:
+                                usage = psutil.disk_usage(drv)
+                                info_dict = {
+                                    "name": drv,
+                                    "label": vol_label or drv,
+                                    "percent": usage.percent,
+                                    "free": round(usage.free / (1024 ** 3), 1),
+                                    "total": round(usage.total / (1024 ** 3), 1),
+                                    "fstype": p.fstype
+                                }
+                                if is_removable:
+                                    usb_list.append(info_dict)
+                                else:
+                                    drives_list.append(info_dict)
+                            except Exception:
+                                pass
                     except Exception:
-                        discovered_drives = self.settings.get("drive_letters", ["C:", "D:"])
-                    
-                    for drv in discovered_drives:
-                        try:
-                            usage = psutil.disk_usage(drv)
-                            cpu_t = metrics.get("cpu_temp")
-                            if cpu_t is None:
-                                cpu_t = 42
-                            cpu_offset = (cpu_t - 40) * 0.2
-                            simulated_temp = int(32 + max(0.0, cpu_offset) + (usage.percent * 0.08))
-                            drives_list.append({
-                                "name": drv,
-                                "percent": usage.percent,
-                                "free": round(usage.free / (1024 ** 3), 1),
-                                "total": round(usage.total / (1024 ** 3), 1),
-                                "temp": simulated_temp
-                            })
-                        except Exception:
-                            pass
-                    self.cached_drives = drives_list
+                        pass
+
+                    selected_drives = self.settings.get("drive_letters", [])
+                    if selected_drives:
+                        drives_list = [d for d in drives_list if d["name"] in selected_drives]
+
+                    with QMutexLocker(self.metrics_mutex):
+                        self.cached_drives = drives_list
+                        self.cached_usb_drives = usb_list
 
                     # Battery polling
                     bat_info = {"present": False}
@@ -257,15 +339,17 @@ class SystemMetricsWorker(QThread):
                             }
                     except Exception:
                         pass
-                    self.cached_battery = bat_info
+                    with QMutexLocker(self.metrics_mutex):
+                        self.cached_battery = bat_info
 
                     # Top Processes (CPU & RAM)
                     cpu_procs = []
                     ram_procs = []
                     try:
-                        for p in psutil.process_iter(['name', 'cpu_percent', 'memory_info']):
+                        for p in psutil.process_iter(['name', 'memory_info']):
                             try:
-                                cpu_pct = p.info['cpu_percent']
+                                # psutil needs successive non-blocking samples for useful per-process CPU.
+                                cpu_pct = p.cpu_percent(None)
                                 mem_used = p.info['memory_info'].rss
                                 name = p.info['name']
                                 if cpu_pct and cpu_pct > 0.5:
@@ -277,15 +361,18 @@ class SystemMetricsWorker(QThread):
                         cpu_procs = sorted(cpu_procs, key=lambda x: x[1], reverse=True)[:3]
                         ram_procs = sorted(ram_procs, key=lambda x: x[1], reverse=True)[:3]
                         ram_formatted = [(name, f"{mem / (1024**2):.1f}MB") for name, mem in ram_procs]
-                        self.cached_top_cpu = cpu_procs
-                        self.cached_top_ram = ram_formatted
+                        with QMutexLocker(self.metrics_mutex):
+                            self.cached_top_cpu = cpu_procs
+                            self.cached_top_ram = ram_formatted
                     except Exception:
                         pass
 
-                metrics["drives"] = self.cached_drives
-                metrics["battery"] = self.cached_battery
-                metrics["top_cpu"] = self.cached_top_cpu
-                metrics["top_ram"] = self.cached_top_ram
+                with QMutexLocker(self.metrics_mutex):
+                    metrics["drives"] = list(self.cached_drives)
+                    metrics["usb_drives"] = list(self.cached_usb_drives)
+                    metrics["battery"] = dict(self.cached_battery) if self.cached_battery else {}
+                    metrics["top_cpu"] = list(self.cached_top_cpu)
+                    metrics["top_ram"] = list(self.cached_top_ram)
 
                 # 5. Network Speed (Diff bytes)
                 try:
@@ -321,14 +408,20 @@ class SystemMetricsWorker(QThread):
 
                 # Ping Latency (every 10 ticks = ~10s)
                 if self.tick_count % 10 == 0 or self.cached_ping is None:
-                    import socket
-                    try:
-                        start_t = time.time()
-                        s = socket.create_connection(("1.1.1.1", 53), timeout=0.8)
-                        s.close()
-                        self.cached_ping = int((time.time() - start_t) * 1000)
-                    except Exception:
-                        self.cached_ping = -1
+                    if ping3:
+                        try:
+                            self.cached_ping = int(ping3.ping('1.1.1.1', timeout=0.8, unit='ms') or -1)
+                        except Exception:
+                            self.cached_ping = -1
+                    else:
+                        try:
+                            import socket
+                            start_t = time.time()
+                            s = socket.create_connection(("1.1.1.1", 53), timeout=0.8)
+                            s.close()
+                            self.cached_ping = int((time.time() - start_t) * 1000)
+                        except Exception:
+                            self.cached_ping = -1
                 metrics["net_ping"] = self.cached_ping
 
                 self.metrics_updated.emit(metrics)
@@ -338,7 +431,8 @@ class SystemMetricsWorker(QThread):
             self.msleep(1000) # Poll fast loop every 1000ms
 
     def trigger_drives_update(self):
-        self.cached_drives = []
+        with QMutexLocker(self.metrics_mutex):
+            self.cached_drives = []
 
     def stop(self):
         self.running = False
@@ -355,6 +449,67 @@ class SettingsManager:
         self.mutex = QMutex()
         self.settings = copy.deepcopy(DEFAULT_SETTINGS)
         self.load_settings()
+
+    def _normalize_settings(self):
+        monitor_index = self.settings.get("monitor_index")
+        if monitor_index is not None:
+            screens = QApplication.screens()
+            if 0 <= monitor_index < len(screens):
+                active_screen = screens[monitor_index]
+            else:
+                active_screen = QApplication.primaryScreen()
+        else:
+            active_screen = QApplication.screenAt(QCursor.pos()) or QApplication.primaryScreen()
+        screen = active_screen.availableGeometry()
+        pos = self.settings.get("position", "top")
+        sz = self.settings.get("icon_size", "medium")
+
+        if self.settings.get("position") not in {"top", "bottom", "left", "right"}:
+            self.settings["position"] = DEFAULT_SETTINGS["position"]
+        if self.settings.get("icon_size") not in {"small", "medium", "large"}:
+            self.settings["icon_size"] = DEFAULT_SETTINGS["icon_size"]
+        if self.settings.get("theme") not in THEMES:
+            self.settings["theme"] = DEFAULT_SETTINGS["theme"]
+        try:
+            self.settings["opacity"] = max(0, min(100, int(self.settings.get("opacity", 25))))
+        except (TypeError, ValueError):
+            self.settings["opacity"] = DEFAULT_SETTINGS["opacity"]
+
+        drives = self.settings.get("drive_letters", [])
+        if not isinstance(drives, list):
+            drives = []
+        self.settings["drive_letters"] = list(dict.fromkeys(
+            drive.upper() for drive in drives
+            if isinstance(drive, str) and re.fullmatch(r"[A-Za-z]:", drive.strip())
+        ))
+
+        for resource in ("cpu", "ram", "gpu"):
+            warn_key, crit_key = f"{resource}_warn", f"{resource}_crit"
+            try:
+                warn = max(10, min(95, int(self.settings.get(warn_key, 60))))
+                crit = max(15, min(99, int(self.settings.get(crit_key, 85))))
+            except (TypeError, ValueError):
+                warn, crit = 60, 85
+            if warn >= crit:
+                crit = min(99, warn + 1)
+                warn = min(warn, crit - 1)
+            self.settings[warn_key], self.settings[crit_key] = warn, crit
+
+    def _save_locked(self):
+        directory = os.path.dirname(self.filename) or "."
+        fd, temp_name = tempfile.mkstemp(prefix=".widget_settings_", suffix=".json", dir=directory)
+        try:
+            with os.fdopen(fd, "w", encoding="utf-8") as f:
+                json.dump(self.settings, f, indent=4)
+                f.flush()
+                os.fsync(f.fileno())
+            os.replace(temp_name, self.filename)
+        except Exception:
+            try:
+                os.unlink(temp_name)
+            except OSError:
+                pass
+            raise
 
     def load_settings(self):
         locker = QMutexLocker(self.mutex)
@@ -374,6 +529,7 @@ class SettingsManager:
                             pass  # self.settings already has default from __init__, keep it
             except Exception as e:
                 print(f"Error loading settings: {e}")
+        self._normalize_settings()
 
     def get(self, key, default=None):
         locker = QMutexLocker(self.mutex)
@@ -386,8 +542,8 @@ class SettingsManager:
         locker = QMutexLocker(self.mutex)
         self.settings[key] = value
         try:
-            with open(self.filename, 'w') as f:
-                json.dump(self.settings, f, indent=4)
+            self._normalize_settings()
+            self._save_locked()
         except Exception as e:
             print(f"Error saving settings: {e}")
 
@@ -397,7 +553,7 @@ class SettingsManager:
         for key, value in updates.items():
             self.settings[key] = value
         try:
-            with open(self.filename, 'w') as f:
-                json.dump(self.settings, f, indent=4)
+            self._normalize_settings()
+            self._save_locked()
         except Exception as e:
             print(f"Error saving settings: {e}")
