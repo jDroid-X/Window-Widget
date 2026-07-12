@@ -68,3 +68,87 @@ The entire application executes in strict sequential waterfall order following c
 3. **Real-Time Live Preview (`⚡ Live Preview`)**:
    - Runs interactively in `SettingsWindow`.
    - **Smooth Integration Point**: Uses `collect_settings_dict()` batch payload -> `controller.apply_configuration()` to update the live desktop bar without blocking modal dialog input.
+
+---
+
+## 5. High-to-Low Priority Waterfall Dataflow Hierarchy & UI/UX Field Chronology (Prime Directive Waterfall Method)
+
+Following the Prime Directive Simple Waterfall Method and Closed-Loop Feedback structure, data and control flow strictly from **Highest Priority (Top — Kernel & State)** down to **Lowest Priority (Bottom — Presentation & Customization)**, with a closed feedback loop returning from user interaction back to the top layers.
+
+```
+TOP PRIORITY (Kernel & State Single Source of Truth)
+   │   1. Identity & OS Lock (main.py -> QLockFile)
+   │   2. Normalized State Schema (models/widget_model.py -> SettingsManager)
+   ▼
+HIGH PRIORITY (Asynchronous Telemetry Engine - Parallel Model)
+   │   3. Hardware Sensors & Telemetry Fields (SystemMetricsWorker)
+   │      [CPU Load/Temp/Freq -> RAM -> GPU -> Drives -> USB -> WiFi -> Battery -> Clock]
+   ▼
+MIDDLE PRIORITY (OOPS MVC Controller & Closed-Loop Router)
+   │   4. Lifecycle & Signal Routing (controllers/widget_controller.py -> WidgetController)
+   │      [Coordinates Model Signals -> View Repainting & OS System Tray]
+   ▼
+PRESENTATION PRIORITY (Primary Desktop Shell UI/UX Layout)
+   │   5. Top-Level Shell Geometry (views/widget_view.py -> WidgetBar)
+   │      [Always-On-Top ToolWindow -> Smart Best-Fit Sizing -> Edge Auto-Hide Docking]
+   ▼
+SUB-VIEW PRIORITY (Polymorphic Hardware Card Layout & Fields)
+   │   6. Card Component Rendering (views/base_card.py -> HardwareCard)
+   │      [Vector Icon -> Primary Value Box -> Secondary Telemetry Text -> Multi-Threshold Progress Bars]
+   ▼
+LOWEST PRIORITY / CLOSED-LOOP ENTRY (Interactive Configuration & Theme Hierarchy)
+       7. 4-Phase Waterfall Customization Modal (views/widget_settings_view.py -> SettingsWindow)
+          ├── Phase 1: Aesthetics (Theme Chronological Priority: Sleek Dark -> Vibrant Blue -> Forest Glass -> Light Minimal -> Radium Rainbow -> Neon Radium)
+          ├── Phase 2: Layout & Docking (Medium Scale Preset -> Dock Position -> Auto-Hide Toggle)
+          ├── Phase 3: CardView Customization (4px Inter-Card Spacing -> Font Family -> Show Border)
+          └── Phase 4: Hardware Cards & Thresholds (Individual Card Visibility -> Warning/Critical Thresholds)
+          │
+          └── [CLOSED-LOOP FEEDBACK]: User UI Action -> collect_settings_dict() -> SettingsManager.set_batch() -> WidgetController.apply_configuration() -> Immediate Repaint (No Restart)
+```
+
+### Chronological Order of Fields & Codes by Layer Priority
+
+#### Priority Tier 1: Kernel & Persistent State Fields (`models/widget_model.py`)
+1. **System Identity & Integrity**: `lock_path`, `single_instance_lock`
+2. **Core Presentation Scale & Orientation**: `bar_scale` (`small`/`medium`/`large`), `dock_position` (`top`/`bottom`/`left`/`right`)
+3. **Core Feature Toggles**: `enable_autohide`, `enable_startup`, `card_spacing` (`4px` default)
+
+#### Priority Tier 2: Asynchronous Telemetry Fields (`SystemMetricsWorker`)
+Ordered chronologically by critical hardware frequency:
+1. `cpu_percent`, `cpu_temp`, `cpu_freq`, `cpu_cores_phys`, `cpu_cores_logical`
+2. `ram_percent`, `ram_used_gb`, `ram_total_gb`
+3. `gpu_percent`, `gpu_temp`, `gpu_vram_used_gb`
+4. `drives` list (`name`, `label`, `percent`, `free`, `total`)
+5. `usb_drives` list (removable hot-swap volumes)
+6. `wifi_ssid` (network connectivity)
+7. `battery_percent`, `is_charging` (power state)
+8. `date_str`, `time_str` (clock ticks)
+
+#### Priority Tier 3: MVC Controller Routing Protocol (`WidgetController`)
+1. `settings` (`SettingsManager` reference)
+2. `worker` (`SystemMetricsWorker` reference)
+3. `widget_bar` (`WidgetBar` reference)
+4. `tray_icon` (`QSystemTrayIcon` reference)
+
+#### Priority Tier 4 & 5: UI/UX Component & Card Field Chronology (`WidgetBar` & `HardwareCard`)
+1. **Shell Container Fields**: `normal_geometry`, `hidden_geometry`, `hide_timer`, `anim` (`QPropertyAnimation`)
+2. **Card Visual Fields**:
+   - `icon_widget` (`VectorIconWidget` polymorphic graphic)
+   - `val` (`QLabel` primary metric box synchronized to icon height)
+   - `sub_lbl` (`QLabel` secondary detail telemetry string)
+   - `prog_bars` (`QProgressBar` threshold-colored indicator bars)
+
+#### Priority Tier 6: 4-Phase Settings UI & Closed Feedback Loop Protocol (`SettingsWindow`)
+- **Visual Theme Chronological Priority Sequence**:
+  1. `Sleek Dark` (Priority 1 Core Default)
+  2. `Vibrant Blue` (Priority 2 Cyber Theme)
+  3. `Forest Glass` (Priority 3 Emerald Theme)
+  4. `Light Minimal` (Priority 4 Light Theme)
+  5. `Radium Rainbow` (Priority 5 Spectral Theme)
+  6. `Neon Radium` (Priority 6 Neon Theme)
+- **Closed-Loop Feedback Flow**:
+  1. User interacts with any control in `SettingsWindow`
+  2. `collect_settings_dict()` extracts UI state atomically
+  3. `SettingsManager.set_batch(updates)` persists changes cleanly
+  4. `WidgetController.apply_configuration()` broadcasts state change to `WidgetBar`
+  5. Cards reposition, scale, and recolor instantly (`⚡ Live Preview`) completing the feedback loop.
